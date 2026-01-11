@@ -1,0 +1,10 @@
+[Event "Chess Tutor"]
+[Site "?"]
+[Date "2026.01.10"]
+[Round "?"]
+[White "Player"]
+[Black "Student"]
+[Result "0-1"]
+
+1. d4 g6 2. Bf4 c5 3. Nf3 cxd4 4. Nxd4 e5 5. Bxe5 Qa5+ 6. Qd2 Qxe5 7. e3 Nc6 8.
+f4 Qc5 9. Bd3 Qb6 10. O-O Nf6 11. Qc3 Bg7 12. Nxc6 bxc6 0-1

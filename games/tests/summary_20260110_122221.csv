@@ -1,0 +1,6 @@
+file,white,black,result,moves,seed,reason
+sim_grasshopper_vs_student_20260110_121944_1.pgn,grasshopper,student,0-1,128,,game_over
+sim_grasshopper_vs_student_20260110_122039_2.pgn,grasshopper,student,*,200,,max_moves_reached
+sim_grasshopper_vs_student_20260110_122113_3.pgn,grasshopper,student,0-1,126,,game_over
+sim_grasshopper_vs_student_20260110_122128_4.pgn,grasshopper,student,0-1,52,,game_over
+sim_grasshopper_vs_student_20260110_122221_5.pgn,grasshopper,student,0-1,190,,game_over

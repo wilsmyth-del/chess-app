@@ -1,0 +1,17 @@
+[Event "Chess Tutor"]
+[Site "?"]
+[Date "2026.01.09"]
+[Round "?"]
+[White "wilsmyth"]
+[Black "Stockfish"]
+[Result "0-1"]
+
+1. d4 c6 2. Bf4 Nf6 3. e3 g6 4. Nf3 Bg7 5. Bd3 Qb6 6. Nbd2 d6 7. c3 Qxb2 8. Rb1
+Qa3 9. Ra1 O-O 10. O-O b5 11. Qc1 b4 12. Qxa3 bxa3 13. Rfb1 Nd5 14. Rc1 Bf5 15.
+Bxf5 Nxf4 16. exf4 e5 17. Be4 f5 18. fxe5 fxe4 19. Nxe4 dxe5 20. d5 cxd5 21.
+Rd1 Rd8 22. Ng3 Nc6 23. Rac1 Bf6 24. h4 Rac8 25. c4 Nb4 26. cxd5 Rxc1 27. Rxc1
+Nxa2 28. Ra1 Nc1 29. Rxa3 Rxd5 30. Rxa7 h6 31. Ra8+ Kf7 32. Ne4 Rd7 33. Nxf6
+Kxf6 34. Ra6+ Ke7 35. Ra7 Rxa7 36. Nxe5 Kf6 37. f4 Rb7 38. g4 Kg7 39. g5 Ne2+
+40. Kf2 Nc3 41. Ke3 Rb4 42. gxh6+ Kxh6 43. f5 Re4+ 44. Kf3 gxf5 45. h5 Rh4 46.
+Nf7+ Kg7 47. h6+ Kg6 48. h7 Kxf7 49. h8=Q Rc4 50. Qe5 Ne4 51. Qxf5+ Kg7 52. Qe6
+Ng5+ 0-1

@@ -1,0 +1,2097 @@
+diff --git a/OneDrive/Desktop/chess tutor v1.1/CHANGELOG.md b/OneDrive/Desktop/chess tutor v1.1/CHANGELOG.md
+index 4b72ce7..7d5cd08 100644
+--- a/OneDrive/Desktop/chess tutor v1.1/CHANGELOG.md	
++++ b/OneDrive/Desktop/chess tutor v1.1/CHANGELOG.md	
+@@ -1,4 +1,15 @@
+-# CHANGELOG — Chess Tutor v1.1 (2026-01-01)
++# CHANGELOG — Chess (2026-01-01)
++
++## 2026-01-10 — Persona core, Tools UI, and batch simulation
++
++- Implemented richer engine persona core: explicit `engine_persona` and `engine_skill`, MultiPV sampling, mercy rules, blunder budgets, and phase-aware softness for endgame tuning.
++- Added deterministic RNG support and per-run seeding to make persona simulations reproducible.
++- Tools UI (`/test_personas`) for persona tuning, import/export/reset of persona overrides, single and batch simulation runs, and download of combined PGN/CSV results.
++- Persona overrides persisted to `data/persona_overrides.json` with validation and atomic writes.
++- Batch simulation: autosaves per-game PGNs into `games/tests/`, writes a combined PGN and CSV summary, and includes `WhitePersona`, `BlackPersona`, `Seed`, `GameNumber`, `EngineTime`, and `Termination` PGN headers.
++- Added secure download endpoint for saved PGN/CSV files and headless CLI batch runner `tools/simulate_personas.py`.
++- Stopped adding additional PGN metadata beyond `EngineTime` and `Termination` per user request.
++ - Removed the public `thinking-speed` selector and hid thought-time controls; persona-driven play now uses an internal default `PERSONA_DEFAULT_ENGINE_TIME` to avoid inconsistent behavior with MultiPV sampling.
+ 
+ ## 2026-01-09 — Free-board editor, FEN export, and server sync
+ 
+@@ -22,6 +33,30 @@ Files changed:
+ Notes:
+ - Free-board editing is client-side; starting from the position pushes it into the local history and synchronizes the server state.
+ - The FEN copy behavior uses the Clipboard API when available and falls back to a temporary textarea + `document.execCommand('copy')` when needed.
++- Persona & Engine updates:
++  - Added `engine-persona` client select and server-side persona support; persona options: Grasshopper (0), Student (1), Adept (3), Ninja (5), Sensei (8).
++  - (Deprecated) Previously included a `thinking-speed` (`fast` / `deep`) selector which mapped persona-specific time presets and updated the engine time slider. This selector was removed on 2026-01-10 in favor of an internal default engine time for persona-driven play (`PERSONA_DEFAULT_ENGINE_TIME`).
++  - Persona selection is persisted in `localStorage` and is disabled while a game is active (Start/Stop Game), preventing mid-game persona swaps.
++  - Engine behavior switched to spawning a transient engine instance per request (server-side) to avoid stale persistent-engine replies; this fixed intermittent null-engine responses.
++  - Snapshot sync on unload: client attempts a final POST to `/api/sync_main_js` (beacon/fetch keepalive fallback) so the repo root `main.js.txt` is kept in sync with `static/main.js` after a session.
++
++  - UI polish (2026-01-09 — later):
++    - Consolidated Play/Resign into one `#play-engine-btn`; label toggles `Start Game` / `Resign` and uses green/red text states.
++    - Normalized `.ctrl` buttons to a fixed size (`min-width`/`height`) so labels don't reflow layout.
++    - Moved `Export FEN` / `Download PGN` below the board in a compact row to free up board area.
++    - Added numeric badges next to captured-piece tray icons (hidden when zero) that reflect per-piece capture counts; trays display captured piece colors correctly.
++    - Anchored captured-trays beneath the board on the side opposite the player's bottom color (white-bottom -> trays right; black-bottom -> trays left).
++    - Adjusted board sizing to scale primarily by viewport height (`72vh` cap) and use `aspect-ratio: 1/1` so the board dominates without forcing scroll.
++    - Synced root `main.js.txt` snapshot to match `static/main.js` after these edits.
++
++    ### 2026-01-09 (update)
++
++    - Added a dedicated `Reset` button to the **Game** tab so users can reset the live/server-backed game from the UI (`game-reset-btn`).
++    - Adjusted the Free Board `Reset` behavior so it restores the standard starting position rather than leaving the board empty (`reset-btn` in the Free tab).
++    - Ensured Free Board `Reset` copies the starting FEN to the clipboard and updates the `FEN` display.
++    - Updated `static/main.js` to wire the new `game-reset-btn` and to make the Free-board reset restore the standard starting position.
++    - Re-synced `main.js.txt` snapshot to reflect the latest `static/main.js` changes (persona fallback, reset handlers, UI tweaks).
++
+ 
+ ---
+ 
+diff --git a/OneDrive/Desktop/chess tutor v1.1/app/api.py b/OneDrive/Desktop/chess tutor v1.1/app/api.py
+index 36bff03..ff65d6c 100644
+--- a/OneDrive/Desktop/chess tutor v1.1/app/api.py	
++++ b/OneDrive/Desktop/chess tutor v1.1/app/api.py	
+@@ -1,8 +1,11 @@
+-from flask import Blueprint, jsonify, request, current_app
++from flask import Blueprint, jsonify, request, current_app, render_template, send_file, abort
+ from app.chess_core import ChessGame
++from app.engine_personas import PERSONA_DEFAULT_ENGINE_TIME
+ import os
+ import datetime
++import csv
+ import chess.pgn
++import traceback
+ 
+ api_bp = Blueprint("api", __name__)
+ 
+@@ -37,12 +40,47 @@ def api_move():
+             engine_time = float(data.get("engine_time", 0.1))
+         except Exception:
+             engine_time = 0.1
++        # Parse engine parameters: separate numeric skill and persona string
++        engine_persona = data.get('engine_persona')
++        # validate persona name if provided
++        try:
++            from app.engine_personas import is_persona_allowed
++            if engine_persona and not is_persona_allowed(engine_persona):
++                return jsonify({"ok": False, "error": "unknown_persona"}), 400
++        except Exception:
++            pass
+         try:
+             engine_skill = data.get("engine_skill")
+             engine_skill = int(engine_skill) if engine_skill is not None else None
+         except Exception:
+             engine_skill = None
+-        reply = game.engine_move(limit=engine_time, skill=engine_skill)
++        # optional RNG seed for deterministic sampling
++        engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
++        if engine_rng_seed is not None:
++            try:
++                engine_rng_seed = int(engine_rng_seed)
++            except Exception:
++                pass
++        # If a persona is provided, use internal default engine time for persona-driven replies
++        if engine_persona:
++            try:
++                engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
++            except Exception:
++                pass
++        # Log debug to file for diagnosis
++        try:
++            root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++            dbg = os.path.join(root, 'engine_debug.log')
++            with open(dbg, 'a', encoding='utf-8') as fh:
++                fh.write(f"[MOVE] {datetime.datetime.now().isoformat()} uci={uci} fen={game.get_fen()} time={engine_time} engine_skill={engine_skill} engine_persona={engine_persona}\n")
++        except Exception:
++            pass
++        reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
++        try:
++            with open(dbg, 'a', encoding='utf-8') as fh:
++                fh.write(f"[MOVE-RESULT] {datetime.datetime.now().isoformat()} reply={repr(reply)} fen={game.get_fen()} engine_skill={engine_skill} engine_persona={engine_persona} rng_seed={engine_rng_seed}\n")
++        except Exception:
++            pass
+     return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": reply})
+ 
+ 
+@@ -79,7 +117,49 @@ def api_engine_move():
+     except Exception:
+         engine_skill = None
+ 
+-    reply = game.engine_move(limit=engine_time, skill=engine_skill)
++    engine_persona = data.get('engine_persona')
++    try:
++        from app.engine_personas import is_persona_allowed
++        if engine_persona and not is_persona_allowed(engine_persona):
++            return jsonify({"ok": False, "error": "unknown_persona"}), 400
++    except Exception:
++        pass
++    engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
++    if engine_rng_seed is not None:
++        try:
++            engine_rng_seed = int(engine_rng_seed)
++        except Exception:
++            pass
++    # If a persona is provided, use internal default engine time for persona-driven replies
++    if engine_persona:
++        try:
++            engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
++        except Exception:
++            pass
++    # If a persona is provided, use an internal default engine time for persona-driven
++    # move selection. This avoids exposing the previous fast/deep UI which behaved
++    # inconsistently when personas used MultiPV sampling. TODO: revisit timed MultiPV
++    # and provide a proper UI control later.
++    if engine_persona:
++        try:
++            engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
++        except Exception:
++            engine_time = float(engine_time)
++
++    # Log debug to file
++    try:
++        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++        dbg = os.path.join(root, 'engine_debug.log')
++        with open(dbg, 'a', encoding='utf-8') as fh:
++            fh.write(f"[ENGINE_MOVE] {datetime.datetime.now().isoformat()} fen={game.get_fen()} time={engine_time} engine_skill={engine_skill} engine_persona={engine_persona}\n")
++    except Exception:
++        pass
++    reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
++    try:
++        with open(dbg, 'a', encoding='utf-8') as fh:
++            fh.write(f"[ENGINE_MOVE_RESULT] {datetime.datetime.now().isoformat()} reply={repr(reply)} fen={game.get_fen()} engine_skill={engine_skill} engine_persona={engine_persona} rng_seed={engine_rng_seed}\n")
++    except Exception:
++        pass
+     return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": reply})
+ 
+ 
+@@ -131,7 +211,7 @@ def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_na
+ 
+     # Build PGN game
+     g = chess.pgn.Game()
+-    g.headers['Event'] = 'Chess Tutor'
++    g.headers['Event'] = 'Chess'
+     g.headers['Date'] = datetime.datetime.now().strftime('%Y.%m.%d')
+     g.headers['Result'] = result
+ 
+@@ -163,6 +243,28 @@ def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_na
+     return fname
+ 
+ 
++@api_bp.route("/api/sync_main_js", methods=["POST"])
++def api_sync_main_js():
++    """Copy `static/main.js` to project root `main.js.txt` atomically and return status."""
++    try:
++        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++        static_path = os.path.join(root, 'static', 'main.js')
++        out_path = os.path.join(root, 'main.js.txt')
++        tmp_path = out_path + '.tmp'
++
++        # Read and write in binary to preserve exact file contents
++        with open(static_path, 'rb') as fh:
++            data = fh.read()
++
++        # Write to a temp file then replace to ensure atomicity
++        with open(tmp_path, 'wb') as fh:
++            fh.write(data)
++        os.replace(tmp_path, out_path)
++        return jsonify({"ok": True, "path": 'main.js.txt'})
++    except Exception as e:
++        return jsonify({"ok": False, "error": str(e)}), 500
++
++
+ @api_bp.route("/api/save_pgn", methods=["POST"])
+ def api_save_pgn():
+     data = request.get_json() or {}
+@@ -175,3 +277,498 @@ def api_save_pgn():
+         return jsonify({"ok": True, "pgn_file": fname})
+     except Exception as e:
+         return jsonify({"ok": False, "error": str(e)}), 500
++
++
++@api_bp.route("/api/engine_move_debug", methods=["POST"])
++def api_engine_move_debug():
++    """Diagnostic endpoint: call engine_move and return detailed debug info in the JSON response."""
++    data = request.get_json() or {}
++    try:
++        engine_time = float(data.get("engine_time", 0.1))
++    except Exception:
++        engine_time = 0.1
++    engine_persona = data.get('engine_persona')
++    try:
++        from app.engine_personas import is_persona_allowed
++        if engine_persona and not is_persona_allowed(engine_persona):
++            return jsonify({"ok": False, "error": "unknown_persona"}), 400
++    except Exception:
++        pass
++    try:
++        engine_skill = data.get("engine_skill")
++        engine_skill = int(engine_skill) if engine_skill is not None else None
++    except Exception:
++        engine_skill = None
++    engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
++    if engine_rng_seed is not None:
++        try:
++            engine_rng_seed = int(engine_rng_seed)
++        except Exception:
++            pass
++
++    pre_fen = game.get_fen()
++    dbg = None
++    err = None
++    reply = None
++    try:
++        reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
++    except Exception as e:
++        err = str(e)
++        err_tb = traceback.format_exc()
++        # include traceback in response where reasonable
++        return jsonify({"ok": False, "error": err, "traceback": err_tb, "pre_fen": pre_fen}), 500
++
++    post_fen = game.get_fen()
++    out = {"ok": True, "pre_fen": pre_fen, "post_fen": post_fen, "reply": reply, "engine_skill": engine_skill, "engine_persona": engine_persona}
++    # If engine returned no move, try a one-off engine invocation to compare behavior
++    if reply is None:
++        try:
++            one_off = None
++            tmp_msg = None
++            try:
++                eng = chess.engine.SimpleEngine.popen_uci(game.engine_path)
++                # try persona configure
++                try:
++                    from app.engine_personas import configure_persona, pick_move_with_multipv, set_rng_seed
++                    cfg = configure_persona(eng, engine_persona)
++                    # apply rng seed for the one-off sampling if provided
++                    try:
++                        set_rng_seed(engine_rng_seed)
++                    except Exception:
++                        pass
++                    mv_res = pick_move_with_multipv(
++                        eng,
++                        game.board,
++                        depth=cfg.get('depth'),
++                        temperature=cfg.get('pick_temperature', 0.0),
++                        multipv=cfg.get('multipv', 10),
++                        mercy=cfg.get('mercy'),
++                        persona=engine_persona,
++                    )
++                    if mv_res:
++                        mv, sel_cp, best_cp, is_blunder = mv_res
++                    else:
++                        mv = None
++                    one_off = mv.uci() if mv is not None else None
++                except Exception:
++                    # fallback to timed play
++                    r = eng.play(game.board, chess.engine.Limit(time=engine_time))
++                    one_off = r.move.uci() if r and getattr(r,'move',None) else None
++                eng.quit()
++                tmp_msg = 'one-off engine call succeeded'
++            except Exception as e:
++                tmp_msg = f'one-off engine call failed: {e}'
++            out['one_off'] = one_off
++            out['one_off_msg'] = tmp_msg
++        except Exception:
++            out['one_off_msg'] = 'one-off investigation failed'
++
++    return jsonify(out)
++
++
++@api_bp.route('/test_personas', methods=['GET'])
++def test_personas_page():
++    return render_template('test_personas.html')
++
++
++@api_bp.route('/api/simulate', methods=['POST'])
++def api_simulate():
++    """Run a headless simulation between two personas and return PGN + move list."""
++    data = request.get_json() or {}
++    white_persona = data.get('white_persona')
++    black_persona = data.get('black_persona')
++    try:
++        engine_time = float(data.get('engine_time', 0.1))
++    except Exception:
++        engine_time = 0.1
++    try:
++        max_moves = int(data.get('max_moves', 200))
++    except Exception:
++        max_moves = 200
++    rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
++
++    # Validate personas if helper available
++    try:
++        from app.engine_personas import is_persona_allowed
++        if white_persona and not is_persona_allowed(white_persona):
++            return jsonify({'ok': False, 'error': 'unknown_persona_white'}), 400
++        if black_persona and not is_persona_allowed(black_persona):
++            return jsonify({'ok': False, 'error': 'unknown_persona_black'}), 400
++    except Exception:
++        pass
++
++    # Run simulation on a fresh game instance
++    try:
++        from app.chess_core import ChessGame
++        sim = ChessGame()
++    except Exception as e:
++        return jsonify({'ok': False, 'error': f'failed_to_create_game: {e}'}), 500
++
++    move_list = []
++    reason = 'max_moves_reached'
++    for i in range(max_moves):
++        if sim.board.is_game_over():
++            reason = 'game_over'
++            break
++        persona = white_persona if sim.board.turn == chess.WHITE else black_persona
++        seed = None
++        if rng_seed is not None:
++            try:
++                seed = int(rng_seed) + i
++            except Exception:
++                seed = rng_seed
++        # Use internal persona default engine time when a persona is provided
++        mv_time = engine_time
++        if persona:
++            try:
++                mv_time = float(PERSONA_DEFAULT_ENGINE_TIME)
++            except Exception:
++                pass
++        mv = sim.engine_move(limit=mv_time, engine_persona=persona, rng_seed=seed)
++        if not mv:
++            reason = 'engine_failed'
++            break
++        move_list.append(mv)
++
++    # Build PGN
++    try:
++        g = chess.pgn.Game()
++        g.headers['Event'] = 'Persona Simulation'
++        # Record selected personas as the player names in the PGN
++        g.headers['White'] = white_persona or 'White'
++        g.headers['Black'] = black_persona or 'Black'
++        g.headers['Result'] = sim.board.result() if sim.board.is_game_over() else '*'
++        node = g
++        for mv in sim.board.move_stack:
++            node = node.add_variation(mv)
++        exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
++        pgn_text = g.accept(exporter)
++    except Exception:
++        pgn_text = None
++
++    # Auto-save PGN to games/tests/ with a timestamped filename
++    saved_fname = None
++    try:
++        if pgn_text:
++            root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++            outdir = os.path.join(root, 'games', 'tests')
++            os.makedirs(outdir, exist_ok=True)
++            now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
++            wp = (white_persona or 'white')
++            bp = (black_persona or 'black')
++            safe_wp = str(wp).replace(' ', '_')
++            safe_bp = str(bp).replace(' ', '_')
++            fname = f'sim_{safe_wp}_vs_{safe_bp}_{now}.pgn'
++            path = os.path.join(outdir, fname)
++            with open(path, 'w', encoding='utf-8') as fh:
++                fh.write(pgn_text)
++            saved_fname = fname
++    except Exception:
++        saved_fname = None
++
++    return jsonify({'ok': True, 'moves': move_list, 'pgn': pgn_text, 'result': g.headers.get('Result'), 'reason': reason, 'saved_file': saved_fname})
++
++
++@api_bp.route('/api/personas', methods=['GET'])
++def api_personas_list():
++    try:
++        from app.engine_personas import list_personas, get_persona_config
++        data = {}
++        for p in list_personas():
++            data[p] = get_persona_config(p)
++        return jsonify({'ok': True, 'personas': data})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/persona/<name>', methods=['GET', 'POST'])
++def api_persona(name):
++    try:
++        from app.engine_personas import get_persona_config, set_persona_override, validate_persona_override
++        if request.method == 'GET':
++            cfg = get_persona_config(name)
++            if cfg is None:
++                return jsonify({'ok': False, 'error': 'unknown_persona'}), 400
++            return jsonify({'ok': True, 'persona': name, 'config': cfg})
++        else:
++            data = request.get_json() or {}
++            # accept partial overrides but validate first
++            okv, err = validate_persona_override(name, data)
++            if not okv:
++                return jsonify({'ok': False, 'error': 'invalid_override', 'message': err}), 400
++            ok = set_persona_override(name, data)
++            if not ok:
++                return jsonify({'ok': False, 'error': 'failed_to_set'}), 400
++            return jsonify({'ok': True})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/persona/<name>/reset', methods=['POST'])
++def api_persona_reset(name):
++    try:
++        from app.engine_personas import reset_persona
++        ok = reset_persona(name)
++        if not ok:
++            return jsonify({'ok': False, 'error': 'unknown_persona'}), 400
++        return jsonify({'ok': True})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/personas/reset_all', methods=['POST'])
++def api_personas_reset_all():
++    try:
++        from app.engine_personas import reset_all_persona_overrides
++        ok = reset_all_persona_overrides()
++        if not ok:
++            return jsonify({'ok': False, 'error': 'failed_to_reset'}), 500
++        return jsonify({'ok': True})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/personas/export', methods=['GET'])
++def api_personas_export():
++    try:
++        from app.engine_personas import export_persona_overrides
++        data = export_persona_overrides()
++        return jsonify({'ok': True, 'overrides': data})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/personas/import', methods=['POST'])
++def api_personas_import():
++    data = request.get_json() or {}
++    # Accept either {'overrides': {...}} or the raw dict
++    payload = data.get('overrides') if isinstance(data.get('overrides'), dict) else data
++    try:
++        from app.engine_personas import import_persona_overrides, validate_persona_override
++        # validate incoming payload before attempting to import
++        if not isinstance(payload, dict):
++            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
++        for k, v in payload.items():
++            if not isinstance(v, dict):
++                return jsonify({'ok': False, 'error': 'invalid_entry', 'which': k}), 400
++            okv, err = validate_persona_override(k, v)
++            if not okv:
++                return jsonify({'ok': False, 'error': 'invalid_entry_schema', 'which': k, 'message': err}), 400
++        ok = import_persona_overrides(payload)
++        if not ok:
++            return jsonify({'ok': False, 'error': 'save_failed'}), 500
++        return jsonify({'ok': True})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/engine_info', methods=['GET'])
++def api_engine_info():
++    try:
++        # Provide detected engine path and some defaults
++        from app.chess_core import ChessGame
++        cg = ChessGame()
++        engine_ok = bool(cg.engine_path)
++        data = {'engine_path': cg.engine_path or None, 'engine_detected': engine_ok, 'default_engine_time': 0.05, 'multipv_cap': 16}
++        return jsonify({'ok': True, 'engine': data})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/simulate_batch', methods=['POST'])
++def api_simulate_batch():
++    """Run multiple persona-vs-persona games server-side and save PGNs + CSV summary."""
++    data = request.get_json() or {}
++    white_persona = data.get('white_persona')
++    black_persona = data.get('black_persona')
++    try:
++        engine_time = float(data.get('engine_time', 0.05))
++    except Exception:
++        engine_time = 0.05
++    try:
++        count = int(data.get('count', 1))
++    except Exception:
++        count = 1
++    try:
++        max_moves = int(data.get('max_moves', 400))
++    except Exception:
++        max_moves = 400
++    seed = data.get('seed') if 'seed' in data else None
++
++    # Validation
++    try:
++        from app.engine_personas import is_persona_allowed
++        if white_persona and not is_persona_allowed(white_persona):
++            return jsonify({'ok': False, 'error': 'unknown_persona_white'}), 400
++        if black_persona and not is_persona_allowed(black_persona):
++            return jsonify({'ok': False, 'error': 'unknown_persona_black'}), 400
++    except Exception:
++        pass
++
++    # Prepare output dir
++    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++    outdir = os.path.join(root, 'games', 'tests')
++    os.makedirs(outdir, exist_ok=True)
++
++    rows = []
++    saved = []
++    pgn_texts = []
++    for i in range(count):
++        try:
++            from app.chess_core import ChessGame
++            sim = ChessGame()
++        except Exception as e:
++            return jsonify({'ok': False, 'error': f'failed_to_create_game: {e}'}), 500
++
++        reason = 'max_moves_reached'
++        seed_used = None
++        for mv_i in range(max_moves):
++            if sim.board.is_game_over():
++                reason = 'game_over'
++                break
++            persona = white_persona if sim.board.turn == chess.WHITE else black_persona
++            mv_seed = None
++            if seed is not None:
++                try:
++                    mv_seed = int(seed) + mv_i
++                except Exception:
++                    mv_seed = seed
++            if seed_used is None:
++                seed_used = mv_seed
++            mv_time = engine_time
++            if persona:
++                try:
++                    mv_time = float(PERSONA_DEFAULT_ENGINE_TIME)
++                except Exception:
++                    pass
++            mv = sim.engine_move(limit=mv_time, engine_persona=persona, rng_seed=mv_seed)
++            if not mv:
++                reason = 'engine_failed'
++                break
++        result = sim.board.result() if sim.board.is_game_over() else '*'
++        # save PGN
++        try:
++            g = chess.pgn.Game()
++            g.headers['Event'] = 'Persona Simulation'
++            g.headers['White'] = white_persona or 'White'
++            g.headers['Black'] = black_persona or 'Black'
++            # Add useful metadata headers for batch analysis
++            g.headers['WhitePersona'] = white_persona or ''
++            g.headers['BlackPersona'] = black_persona or ''
++            g.headers['Seed'] = str(seed_used) if seed_used is not None else ''
++            g.headers['GameNumber'] = str(i+1)
++            g.headers['EngineTime'] = str(engine_time)
++            g.headers['Termination'] = reason or ''
++            g.headers['Result'] = result
++            node = g
++            for mv in sim.board.move_stack:
++                node = node.add_variation(mv)
++            exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
++            pgn_text = g.accept(exporter)
++            now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
++            safe_wp = str(white_persona or 'white').replace(' ', '_')
++            safe_bp = str(black_persona or 'black').replace(' ', '_')
++            fname = f'sim_{safe_wp}_vs_{safe_bp}_{now}_{i+1}.pgn'
++            path = os.path.join(outdir, fname)
++            with open(path, 'w', encoding='utf-8') as fh:
++                fh.write(pgn_text)
++            saved.append(fname)
++            pgn_texts.append(pgn_text)
++            rows.append({'file': fname, 'white': white_persona, 'black': black_persona, 'result': result, 'moves': len(sim.board.move_stack), 'seed': seed_used, 'reason': reason})
++        except Exception:
++            pass
++
++    # Write CSV
++    csv_path = os.path.join(outdir, f'summary_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
++    try:
++        with open(csv_path, 'w', newline='', encoding='utf-8') as cf:
++            w = csv.DictWriter(cf, fieldnames=['file', 'white', 'black', 'result', 'moves', 'seed', 'reason'])
++            w.writeheader()
++            for r in rows:
++                w.writerow(r)
++    except Exception:
++        csv_path = None
++
++    return jsonify({'ok': True, 'count': len(saved), 'files': saved, 'csv': os.path.basename(csv_path) if csv_path else None})
++
++    # If we have multiple PGNs, write a combined PGN file
++    combined_name = None
++    try:
++        if pgn_texts:
++            now2 = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
++            safe_wp = str(white_persona).replace(' ', '_')
++            safe_bp = str(black_persona).replace(' ', '_')
++            combined_name = f'batch_{safe_wp}_vs_{safe_bp}_{now2}.pgn'
++            combined_path = os.path.join(outdir, combined_name)
++            # join pgns with blank lines
++            with open(combined_path, 'w', encoding='utf-8') as cf:
++                for idx, pt in enumerate(pgn_texts):
++                    cf.write(pt)
++                    cf.write('\n\n')
++    except Exception:
++        combined_name = None
++
++    return jsonify({'ok': True, 'count': len(saved), 'files': saved, 'csv': os.path.basename(csv_path) if csv_path else None, 'batch_pgn': combined_name})
++
++
++@api_bp.route('/api/open_engine_debug', methods=['GET'])
++def api_open_engine_debug():
++    try:
++        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++        dbg = os.path.join(root, 'engine_debug.log')
++        if not os.path.exists(dbg):
++            return jsonify({'ok': True, 'output': []})
++        with open(dbg, 'r', encoding='utf-8', errors='ignore') as fh:
++            lines = fh.read().splitlines()
++        tail = lines[-50:]
++        return jsonify({'ok': True, 'output': tail})
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/open_pgn_notepad', methods=['POST'])
++def api_open_pgn_notepad():
++    data = request.get_json() or {}
++    fname = data.get('filename')
++    if not fname:
++        return jsonify({'ok': False, 'error': 'missing_filename'}), 400
++    try:
++        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++        path = os.path.join(root, 'games', 'tests', fname)
++        if not os.path.exists(path):
++            return jsonify({'ok': False, 'error': 'file_not_found'}), 404
++        # Only attempt to open on Windows using notepad
++        if os.name == 'nt':
++            try:
++                import subprocess
++                subprocess.Popen(['notepad.exe', path])
++                return jsonify({'ok': True})
++            except Exception as e:
++                return jsonify({'ok': False, 'error': str(e)}), 500
++        else:
++            return jsonify({'ok': False, 'error': 'not_supported_on_os'}), 400
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
++
++
++@api_bp.route('/api/download_pgn', methods=['GET'])
++def api_download_pgn():
++    """Download a file from games/tests by filename (safe, no path traversal)."""
++    fname = request.args.get('filename')
++    if not fname:
++        return jsonify({'ok': False, 'error': 'missing_filename'}), 400
++    safe = os.path.basename(fname)
++    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++    # allow files from games/tests and games
++    candidates = [os.path.join(root, 'games', 'tests', safe), os.path.join(root, 'games', safe)]
++    found = None
++    for p in candidates:
++        if os.path.exists(p):
++            found = p
++            break
++    if not found:
++        return jsonify({'ok': False, 'error': 'file_not_found'}), 404
++    try:
++        return send_file(found, as_attachment=True, download_name=safe)
++    except Exception as e:
++        return jsonify({'ok': False, 'error': str(e)}), 500
+diff --git a/OneDrive/Desktop/chess tutor v1.1/static/main.js b/OneDrive/Desktop/chess tutor v1.1/static/main.js
+index fd5e520..efef847 100644
+--- a/OneDrive/Desktop/chess tutor v1.1/static/main.js	
++++ b/OneDrive/Desktop/chess tutor v1.1/static/main.js	
+@@ -4,9 +4,12 @@ let moveInFlight = false;
+ let pendingPromotion = null; // { source, target, fromPiece, prevFen }
+ let gameOver = false;
+ let autoPgnSaved = false;
+-let engineReplyEnabled = false;
++// `playEngine` tracks whether a game (engine play) is active
++let playEngine = false;
+ let freeBoardMode = false;
+ let selectedPiece = null; // like 'wK' or 'bq'
++// saved game FEN when entering Free Board tab so we can restore later
++let savedGameFenBeforeFree = null;
+ 
+ // Debug/version stamp to detect wrong/old files being loaded in the browser
+ console.log('main.js loaded: v1.2 - turn lock + promo modal + dark mode');
+@@ -27,6 +30,22 @@ let historyMoves = []; // array of arrays, e.g. [["e4","e5"], ["Nf3"]]
+ // Captured pieces tracked incrementally
+ let capturedByWhite = []; // black pieces captured (shown in white tray)
+ let capturedByBlack = []; // white pieces captured (shown in black tray)
++// Auto-update trays flag (can be toggled by UI)
++// captured trays always update automatically from FEN; manual controls removed
++
++function flashTrays() {
++  try {
++    const els = document.querySelectorAll('.tray-items');
++    els.forEach(el => {
++      el.classList.remove('tray-flash');
++      // trigger reflow to restart animation
++      // eslint-disable-next-line no-unused-expressions
++      void el.offsetWidth;
++      el.classList.add('tray-flash');
++      setTimeout(() => el.classList.remove('tray-flash'), 500);
++    });
++  } catch (e) { /* ignore */ }
++}
+ 
+ function fenPieceCounts(fen) {
+   const boardPart = fen.split(' ')[0];
+@@ -44,6 +63,36 @@ function fenPieceCounts(fen) {
+   return counts;
+ }
+ 
++// Recompute captured-piece trays from an absolute FEN snapshot.
++// Captured-by-white (pieces shown in white tray) are the black pieces
++// missing from the standard starting set; similarly for captured-by-black.
++function setCapturedFromFen(fen) {
++  try {
++    const counts = fenPieceCounts(fen);
++    const start = { p: 8, r: 2, n: 2, b: 2, q: 1, k: 1 };
++    capturedByWhite = [];
++    capturedByBlack = [];
++
++    // Black pieces missing -> captured by white (show in white tray)
++    for (const t of ['p','r','n','b','q','k']) {
++      const have = (counts.b && counts.b[t]) ? counts.b[t] : 0;
++      const missing = Math.max(0, (start[t] || 0) - have);
++      for (let i = 0; i < missing; i++) capturedByWhite.push(t);
++    }
++
++    // White pieces missing -> captured by black (show in black tray)
++    for (const t of ['p','r','n','b','q','k']) {
++      const have = (counts.w && counts.w[t]) ? counts.w[t] : 0;
++      const missing = Math.max(0, (start[t] || 0) - have);
++      for (let i = 0; i < missing; i++) capturedByBlack.push(t);
++    }
++
++    renderCapturedTrays();
++  } catch (e) {
++    console.warn('setCapturedFromFen failed', e);
++  }
++}
++
+ function renderCapturedTrays() {
+   const trayW = document.getElementById('tray-white');
+   const trayB = document.getElementById('tray-black');
+@@ -51,10 +100,22 @@ function renderCapturedTrays() {
+   if (trayB) trayB.innerHTML = '';
+   // Show fixed piece trays (5 pieces each color: P,R,N,B,Q). Click to add in free-board mode.
+   const pieceOrder = ['p','r','n','b','q'];
++
++  // Compute counts from captured arrays (capturedByWhite shows black pieces captured by white)
++  const countsW = { p:0, r:0, n:0, b:0, q:0 };
++  const countsB = { p:0, r:0, n:0, b:0, q:0 };
++  for (const t of capturedByWhite) if (countsW[t] !== undefined) countsW[t]++;
++  for (const t of capturedByBlack) if (countsB[t] !== undefined) countsB[t]++;
++
+   if (trayW) {
+     for (const p of pieceOrder) {
++      const wrapper = document.createElement('span');
++      wrapper.className = 'tray-item';
++      wrapper.style.display = 'inline-flex';
++      wrapper.style.alignItems = 'center';
+       const img = document.createElement('img');
+-      img.src = `/static/img/chesspieces/wikipedia/w${p.toUpperCase()}.png`;
++      // tray-white shows black pieces captured by White, so use black piece images
++      img.src = `/static/img/chesspieces/wikipedia/b${p.toUpperCase()}.png`;
+       img.className = 'captured-piece';
+       img.style.cursor = 'pointer';
+       img.addEventListener('click', async () => {
+@@ -63,20 +124,35 @@ function renderCapturedTrays() {
+           const pos = board.position();
+           const sq = findFirstEmptySquare(pos);
+           if (!sq) { setStatus('No empty square to add piece'); return; }
+-          pos[sq] = 'w' + p.toUpperCase();
++          // add a black piece (captured piece shown in white tray is black)
++          pos[sq] = 'b' + p.toUpperCase();
+           board.position(pos);
+           const fen = rebuildGameFromPosition(pos);
+           await copyFenToClipboard(fen);
+           setStatus('Piece added from tray — FEN copied');
+         } catch (e) { console.warn('tray add failed', e); }
+       });
+-      trayW.appendChild(img);
++      wrapper.appendChild(img);
++      const cnt = countsW[p] || 0;
++      if (cnt > 0) {
++        const badge = document.createElement('span');
++        badge.className = 'tray-badge';
++        badge.textContent = String(cnt);
++        wrapper.appendChild(badge);
++      }
++      trayW.appendChild(wrapper);
+     }
+   }
++
+   if (trayB) {
+     for (const p of pieceOrder) {
++      const wrapper = document.createElement('span');
++      wrapper.className = 'tray-item';
++      wrapper.style.display = 'inline-flex';
++      wrapper.style.alignItems = 'center';
+       const img = document.createElement('img');
+-      img.src = `/static/img/chesspieces/wikipedia/b${p.toUpperCase()}.png`;
++      // tray-black shows white pieces captured by Black, so use white piece images
++      img.src = `/static/img/chesspieces/wikipedia/w${p.toUpperCase()}.png`;
+       img.className = 'captured-piece';
+       img.style.cursor = 'pointer';
+       img.addEventListener('click', async () => {
+@@ -85,14 +161,23 @@ function renderCapturedTrays() {
+           const pos = board.position();
+           const sq = findFirstEmptySquare(pos);
+           if (!sq) { setStatus('No empty square to add piece'); return; }
+-          pos[sq] = 'b' + p.toUpperCase();
++          // add a white piece (captured piece shown in black tray is white)
++          pos[sq] = 'w' + p.toUpperCase();
+           board.position(pos);
+           const fen = rebuildGameFromPosition(pos);
+           await copyFenToClipboard(fen);
+           setStatus('Piece added from tray — FEN copied');
+         } catch (e) { console.warn('tray add failed', e); }
+       });
+-      trayB.appendChild(img);
++      wrapper.appendChild(img);
++      const cnt = countsB[p] || 0;
++      if (cnt > 0) {
++        const badge = document.createElement('span');
++        badge.className = 'tray-badge';
++        badge.textContent = String(cnt);
++        wrapper.appendChild(badge);
++      }
++      trayB.appendChild(wrapper);
+     }
+   }
+ }
+@@ -201,7 +286,7 @@ function setFen(fen, pushHistory = false) {
+     historyMoves.push(sanList || []);
+     historyIndex = historyFens.length - 1;
+     // update captured trays based on fen diff
+-    try { updateCapturedFromFens(prevFen, fen); } catch (e) { console.warn('updateCapturedFromFens failed', e); }
++    try { setCapturedFromFen(fen); } catch (e) { console.warn('setCapturedFromFen failed', e); }
+   } else if (historyIndex === -1) {
+     // initial load fallback
+     historyFens.push(fen);
+@@ -248,46 +333,7 @@ function computeSanSequence(prevFen, newFen) {
+ }
+ 
+ function renderMoveList() {
+-  const el = document.getElementById('move-list');
+-  if (!el) return;
+-  el.innerHTML = '';
+-
+-  // Render a sliding window of N turns centered (when possible) on current index
+-  const VISIBLE_TURNS = 5;
+-  const total = historyMoves.length;
+-  let start = 0;
+-  if (total <= VISIBLE_TURNS) {
+-    start = 0;
+-  } else {
+-    // center on historyIndex when possible
+-    const half = Math.floor(VISIBLE_TURNS / 2);
+-    start = Math.max(0, Math.min(historyIndex - half, total - VISIBLE_TURNS));
+-  }
+-  let moveNum = start + 1;
+-  for (let i = start; i < Math.min(total, start + VISIBLE_TURNS); i++) {
+-    const arr = historyMoves[i] || [];
+-    if (arr.length === 0) continue;
+-    const node = document.createElement('div');
+-    node.style.cursor = 'pointer';
+-    node.dataset.index = i;
+-    node.addEventListener('click', () => { historyIndex = parseInt(node.dataset.index, 10); setFen(historyFens[historyIndex], false); });
+-    node.textContent = `${moveNum}. ${arr.join(' ')}`;
+-    if (i === historyIndex) node.style.background = '#eef';
+-    el.appendChild(node);
+-    moveNum += 1;
+-  }
+-
+-  // Auto-scroll to current visible entry (or bottom)
+-  const children = el.children;
+-  if (children && children.length) {
+-    // find child matching historyIndex; if not present, scroll to bottom
+-    let target = null;
+-    for (let j = 0; j < children.length; j++) {
+-      if (parseInt(children[j].dataset.index, 10) === historyIndex) { target = children[j]; break; }
+-    }
+-    if (!target) target = children[children.length - 1];
+-    if (target) target.scrollIntoView({ block: 'nearest' });
+-  }
++  // move list UI removed — no-op
+ }
+ 
+ // Accordion toggle handlers
+@@ -319,6 +365,34 @@ document.addEventListener('DOMContentLoaded', () => {
+   });
+ });
+ 
++// --- Auto-sync snapshot at session end -------------------------------------------------
++// When the user leaves the page, attempt to tell the server to write a snapshot
++// copy of the served `static/main.js` into the repo root as `main.js.txt`.
++function _syncMainJsSnapshot() {
++  try {
++    const url = '/api/sync_main_js';
++    // Try lightweight beacon first so it works during unload
++    if (navigator && typeof navigator.sendBeacon === 'function') {
++      try { navigator.sendBeacon(url); return; } catch (e) { /* fallthrough */ }
++    }
++    // Fallback to fetch with keepalive where supported
++    try {
++      fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
++    } catch (e) { /* ignore */ }
++  } catch (e) { /* ignore */ }
++}
++
++// Prefer beforeunload to capture navigations and tab/window close events
++window.addEventListener('beforeunload', () => {
++  _syncMainJsSnapshot();
++});
++
++// Also send a final attempt on pagehide (better for some browsers)
++window.addEventListener('pagehide', () => {
++  _syncMainJsSnapshot();
++});
++
++
+ function updateResultIndicator() {
+   const el = document.getElementById('result-indicator');
+   if (!el || !game) return;
+@@ -367,47 +441,83 @@ function updateResultIndicator() {
+ }
+ 
+ // If a terminal result is reached, automatically save PGN once.
+-function maybeTriggerAutoSave() {
++async function maybeTriggerAutoSave() {
+   if (autoPgnSaved) return;
+   if (!game) return;
+   try {
+     let terminal = false;
+     let result = '*';
++    let resultText = '';
+     if (game.in_checkmate && game.in_checkmate()) {
+       terminal = true;
+-      // winner is side NOT to move
+       const winner = game.turn() === 'w' ? 'Black' : 'White';
+       result = winner === 'White' ? '1-0' : '0-1';
++      resultText = `${winner} wins (checkmate)`;
+     } else if (game.in_stalemate && game.in_stalemate()) {
+-      terminal = true; result = '1/2-1/2';
++      terminal = true; result = '1/2-1/2'; resultText = 'Draw (stalemate)';
+     } else if (game.in_threefold_repetition && game.in_threefold_repetition()) {
+-      terminal = true; result = '1/2-1/2';
++      terminal = true; result = '1/2-1/2'; resultText = 'Draw (threefold repetition)';
+     } else if (game.insufficient_material && game.insufficient_material()) {
+-      terminal = true; result = '1/2-1/2';
++      terminal = true; result = '1/2-1/2'; resultText = 'Draw (insufficient material)';
+     } else if (game.in_draw && game.in_draw()) {
+-      terminal = true; result = '1/2-1/2';
++      terminal = true; result = '1/2-1/2'; resultText = 'Draw';
+     }
+ 
+     if (!terminal) return;
+ 
+     // Compose payload using current UI values
+     const userSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
+-    const userName = (playerNameInput && playerNameInput.value) ? playerNameInput.value : 'Player';
+-    const opponentName = (opponentNameInput && opponentNameInput.value) ? opponentNameInput.value : (engineReplyEnabled ? 'Engine' : 'Opponent');
+-      const engineFlag = !!engineReplyEnabled;
+-
+-    // Fire-and-forget save; mark saved once successful
+-    fetch('/api/save_pgn', {
+-      method: 'POST', headers: {'Content-Type': 'application/json'},
+-      body: JSON.stringify({ result, user_side: userSide, user_name: userName, opponent_name: opponentName, engine: engineFlag })
+-    }).then(r => r.json()).then(j => {
++    const userName = 'Player';
++    const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
++    const engineFlag = !!playEngine;
++
++    // Auto-save PGN (fire-and-forget) and mark saved when successful
++    try {
++      const r = await fetch('/api/save_pgn', {
++        method: 'POST', headers: {'Content-Type': 'application/json'},
++        body: JSON.stringify({ result, user_side: userSide, user_name: userName, opponent_name: opponentName, engine: engineFlag })
++      });
++      const j = await r.json();
+       if (j && j.pgn_file) {
+         autoPgnSaved = true;
+         setStatus('Auto-saved PGN: ' + j.pgn_file);
+       }
+-    }).catch(() => {
++    } catch (e) {
+       // ignore network errors for auto-save
+-    });
++    }
++
++    // Prompt the user and offer to reset the board to a neutral starting state
++    try {
++      const ok = window.confirm(`Game over: ${resultText}\n\nPress OK to reset the board to the starting position.`);
++      if (ok) {
++        try { setPlayEngine(false); } catch (e) { /* ignore */ }
++        // Ask server for a fresh reset position and apply it
++        try {
++          const resp = await postReset();
++          if (resp && resp.fen) {
++            historyFens = [];
++            historyIndex = -1;
++            setFen(resp.fen, true);
++            gameOver = true;
++            autoPgnSaved = true;
++            setStatus('Game ended: ' + resultText);
++            const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
++          } else {
++            setStatus('Reset failed after game end');
++          }
++        } catch (e) {
++          setStatus('Reset failed after game end');
++        }
++      } else {
++        // Keep board as-is but mark as game over
++        gameOver = true;
++        setStatus('Game ended: ' + resultText);
++        const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
++      }
++    } catch (e) {
++      console.warn('User prompt failed', e);
++    }
++
+   } catch (e) {
+     console.warn('auto-save check failed', e);
+   }
+@@ -456,13 +566,30 @@ async function fetchState() {
+ }
+ 
+ async function postMove(uci) {
+-  const engine = engineReplyEnabled || false;
++  const engine = playEngine || false;
+   const engineTime = parseFloat(document.getElementById('engine-time')?.value || '0.1');
+-  const engineSkill = parseInt(document.getElementById('engine-skill')?.value || '10', 10);
++  // Determine engine skill: prefer slider value; fall back to persona profile skill when slider missing/invalid
++  const enginePersona = (document.getElementById('engine-persona')?.value || '').trim();
++  let engineSkill = NaN;
++  try {
++    const raw = document.getElementById('engine-skill')?.value;
++    engineSkill = parseInt(typeof raw !== 'undefined' && raw !== null ? raw : NaN, 10);
++  } catch (e) { engineSkill = NaN; }
++  if (isNaN(engineSkill)) {
++    try {
++      if (typeof botProfiles !== 'undefined' && enginePersona && botProfiles[enginePersona] && typeof botProfiles[enginePersona].skill === 'number') {
++        engineSkill = botProfiles[enginePersona].skill;
++      } else {
++        engineSkill = 1; // sensible default
++      }
++    } catch (e) { engineSkill = 1; }
++  }
++  const payload = { uci, engine_reply: engine, engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
++  console.debug('postMove payload', payload);
+   const r = await fetch('/api/move', {
+     method: 'POST',
+     headers: {'Content-Type': 'application/json'},
+-    body: JSON.stringify({uci, engine_reply: engine, engine_time: engineTime, engine_skill: engineSkill})
++    body: JSON.stringify(payload)
+   });
+   return r.json();
+ }
+@@ -474,11 +601,28 @@ async function postReset() {
+ 
+ async function postEngineMove() {
+   const engineTime = parseFloat(document.getElementById('engine-time')?.value || '0.1');
+-  const engineSkill = parseInt(document.getElementById('engine-skill')?.value || '10', 10);
++  // Determine engine skill for engine-move request using same fallback logic
++  const enginePersona = (document.getElementById('engine-persona')?.value || '').trim();
++  let engineSkill = NaN;
++  try {
++    const raw = document.getElementById('engine-skill')?.value;
++    engineSkill = parseInt(typeof raw !== 'undefined' && raw !== null ? raw : NaN, 10);
++  } catch (e) { engineSkill = NaN; }
++  if (isNaN(engineSkill)) {
++    try {
++      if (typeof botProfiles !== 'undefined' && enginePersona && botProfiles[enginePersona] && typeof botProfiles[enginePersona].skill === 'number') {
++        engineSkill = botProfiles[enginePersona].skill;
++      } else {
++        engineSkill = 1;
++      }
++    } catch (e) { engineSkill = 1; }
++  }
++  const payload = { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
++  console.debug('postEngineMove payload', payload);
+   const r = await fetch('/api/engine_move', {
+     method: 'POST',
+     headers: {'Content-Type': 'application/json'},
+-    body: JSON.stringify({engine_time: engineTime, engine_skill: engineSkill})
++    body: JSON.stringify(payload)
+   });
+   return r.json();
+ }
+@@ -565,7 +709,7 @@ async function onDrop(source, target, piece, newPos, oldPos, orientation) {
+   const moving = game.get(source);
+   if (!moving) return rejectMove('No piece');
+ 
+-  if (moving.color !== game.turn()) {
++  if (String(moving.color).toLowerCase() !== String(game.turn()).toLowerCase()) {
+     return rejectMove('Wrong side to move');
+   }
+ 
+@@ -666,8 +810,9 @@ function submitUci(uci, prevFen) {
+ 
+ function onDragStart(source, piece, position, orientation) {
+   // piece is like "wP", "bQ" in chessboard.js
+-  const turn = game.turn(); // 'w' or 'b'
+-  const pieceColor = piece[0]; // 'w' or 'b'
++  const turn = (game && typeof game.turn === 'function') ? String(game.turn()).toLowerCase() : 'w'; // 'w' or 'b'
++  const pieceColor = (piece && piece[0]) ? String(piece[0]).toLowerCase() : null; // 'w' or 'b'
++  console.debug('onDragStart:', { piece, pieceColor, turn });
+ 
+   // Allow free editing/drags when freeBoardMode is on (engine off)
+   if (freeBoardMode) {
+@@ -676,6 +821,7 @@ function onDragStart(source, piece, position, orientation) {
+   }
+ 
+   if (moveInFlight || pendingPromotion || gameOver) return false;
++  if (!pieceColor) return false;
+   if (pieceColor !== turn) return false;
+ 
+   return true;
+@@ -699,47 +845,67 @@ window.addEventListener('load', async () => {
+   const playerSelect = document.getElementById('player-color');
+   if (playerSelect) playerSelect.value = savedPlayerColor;
+ 
+-  // Player / Opponent name inputs (persisted)
+-  const playerNameInput = document.getElementById('player-name');
+-  const opponentNameInput = document.getElementById('opponent-name');
+-  const thinkingSpeedSelect = document.getElementById('thinking-speed');
++  // Position captured trays under the board on the side matching the opponent
++  const capturedTraysEl = document.querySelector('.captured-trays');
++  function updateCapturedTraysAnchor() {
++    try {
++      if (!capturedTraysEl || !playerSelect) return;
++      capturedTraysEl.classList.remove('anchored-left','anchored-right');
++      const humanIsWhite = playerSelect.value === 'white';
++      // If human is white (white at bottom), anchor captured pieces to the right below board
++      if (humanIsWhite) capturedTraysEl.classList.add('anchored-right');
++      else capturedTraysEl.classList.add('anchored-left');
++    } catch (e) { /* ignore */ }
++  }
++  // apply immediately
++  try { updateCapturedTraysAnchor(); } catch (e) {}
++  // update when player color changes
++  if (playerSelect) playerSelect.addEventListener('change', () => {
++    try { localStorage.setItem('playerColor', playerSelect.value); } catch (e) {}
++    try { updateCapturedTraysAnchor(); } catch (e) {}
++    try { updatePlayersDisplay(); } catch (e) {}
++  });
++
++  // Persona controls
++  const enginePersonaSelect = document.getElementById('engine-persona');
+   try {
+-    const savedPlayerName = localStorage.getItem('playerName');
+-    const savedOpponentName = localStorage.getItem('opponentName');
+-    const savedThinkingSpeed = localStorage.getItem('thinkingSpeed');
+-    if (playerNameInput && savedPlayerName) playerNameInput.value = savedPlayerName;
+-    if (opponentNameInput && savedOpponentName) {
+-      opponentNameInput.value = savedOpponentName;
+-    } else if (opponentNameInput) {
+-      opponentNameInput.value = 'Student';
+-      try { localStorage.setItem('opponentName', 'Student'); } catch (e) {}
+-    }
+-    if (thinkingSpeedSelect && savedThinkingSpeed) {
+-      thinkingSpeedSelect.value = savedThinkingSpeed;
+-    } else if (thinkingSpeedSelect) {
+-      thinkingSpeedSelect.value = 'deep';
+-      try { localStorage.setItem('thinkingSpeed', 'deep'); } catch (e) {}
++    const savedPersona = localStorage.getItem('enginePersona');
++    if (enginePersonaSelect && savedPersona) enginePersonaSelect.value = savedPersona;
++    if (enginePersonaSelect && savedPersona) {
++      enginePersonaSelect.value = savedPersona;
++    } else if (enginePersonaSelect) {
++      // default persona
++      enginePersonaSelect.value = 'Student';
++      try { localStorage.setItem('enginePersona', 'Student'); } catch (e) {}
+     }
+   } catch (e) { /* ignore localStorage errors */ }
+-  if (playerNameInput) playerNameInput.addEventListener('input', () => { try { localStorage.setItem('playerName', playerNameInput.value || 'Player'); } catch (e) {} });
+-  if (opponentNameInput) opponentNameInput.addEventListener('change', () => { try { localStorage.setItem('opponentName', opponentNameInput.value || 'Opponent'); } catch (e) {} });
+-  if (thinkingSpeedSelect) thinkingSpeedSelect.addEventListener('change', () => { try { localStorage.setItem('thinkingSpeed', thinkingSpeedSelect.value); } catch (e) {} });
++  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) {} });
+   const playersDisplay = document.getElementById('players-display');
+   function updatePlayersDisplay() {
+     if (!playersDisplay) return;
+-    const pName = (playerNameInput && playerNameInput.value) ? playerNameInput.value : 'Player';
+-    const oName = (opponentNameInput && opponentNameInput.value) ? opponentNameInput.value : 'Opponent';
+     const humanIsWhite = (playerSelect && playerSelect.value === 'white');
+-    const whiteName = humanIsWhite ? pName : oName;
+-    const blackName = humanIsWhite ? oName : pName;
++    const oppName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
++    const whiteName = humanIsWhite ? 'Player' : oppName;
++    const blackName = humanIsWhite ? oppName : 'Player';
+     playersDisplay.textContent = `White: ${whiteName}  |  Black: ${blackName}`;
+   }
+   // update display when names or side change
+-  if (playerNameInput) playerNameInput.addEventListener('input', updatePlayersDisplay);
+-  if (opponentNameInput) opponentNameInput.addEventListener('change', updatePlayersDisplay);
++  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', updatePlayersDisplay);
+   // initial render of the players mapping
+   try { updatePlayersDisplay(); } catch (e) { }
+ 
++  // Header persona indicator (keeps user informed which persona is active)
++  const personaIndicator = document.getElementById('persona-indicator');
++  function refreshPersonaIndicator() {
++    try {
++      const name = enginePersonaSelect ? enginePersonaSelect.value : '';
++      if (personaIndicator) personaIndicator.textContent = `Persona: ${name || '(none)'}`;
++    } catch (e) { /* ignore */ }
++  }
++  // initialize and keep in sync
++  refreshPersonaIndicator();
++  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', refreshPersonaIndicator);
++
+   board = Chessboard('board', {
+     draggable: true,
+     position: init.fen,
+@@ -748,6 +914,179 @@ window.addEventListener('load', async () => {
+     onDrop: onDrop,
+     pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png'
+   });
++  // Ensure the board uses the container width and resizes when tabs change
++  try {
++    const resizeBoard = () => { try { if (board && typeof board.resize === 'function') board.resize(); else if (board && typeof board.position === 'function') board.position(board.fen()); } catch(e){} };
++
++    // Tab switching: show/hide tab-cards and mark selected tab
++    const tabButtons = document.querySelectorAll('.tab-btn');
++    const tabCards = document.querySelectorAll('.tab-card');
++    function activateTab(name) {
++      tabButtons.forEach(b => { const sel = b.getAttribute('data-tab') === name; b.setAttribute('aria-selected', sel ? 'true' : 'false'); });
++      tabCards.forEach(c => { c.style.display = (c.getAttribute('data-tab') === name) ? 'block' : 'none'; });
++      // call resize to ensure board fits new layout
++      setTimeout(resizeBoard, 40);
++
++      // Special handling for Free Board tab: preserve ongoing game FEN and present starting position
++      try {
++        const freeToggle = document.getElementById('free-board-toggle');
++        if (name === 'free') {
++          if (!freeBoardMode) {
++            // remember current game position if present
++            try { savedGameFenBeforeFree = game ? game.fen() : null; } catch (e) { savedGameFenBeforeFree = null; }
++            freeBoardMode = true;
++            if (freeToggle) freeToggle.checked = true;
++            // show standard starting position for editing
++            try {
++              const startFen = (new Chess()).fen();
++              // do not push into history; just set board and game state for editing
++              game.load(startFen);
++              board.position(startFen);
++              const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = startFen;
++              setStatus('Free Board: starting position loaded (original game saved)');
++            } catch (e) { console.warn('Failed to load start position for free board', e); }
++          }
++        } else {
++          // leaving free board tab: restore saved game if any
++          if (freeBoardMode) {
++            freeBoardMode = false;
++            if (freeToggle) freeToggle.checked = false;
++            if (savedGameFenBeforeFree) {
++              try {
++                setFen(savedGameFenBeforeFree, false);
++                setStatus('Restored game position');
++              } catch (e) { console.warn('Failed to restore saved game fen', e); }
++              savedGameFenBeforeFree = null;
++            }
++          }
++        }
++      } catch (e) { console.warn('activateTab free-board handling failed', e); }
++    }
++    tabButtons.forEach(b => b.addEventListener('click', () => activateTab(b.getAttribute('data-tab'))));
++    // initial
++    activateTab('game');
++  } catch (e) { console.warn('tab init failed', e); }
++    // Tools card wiring: open simulator in new tab and open tests folder via API
++    try {
++      const launchBtn = document.getElementById('launch-simulator');
++      if (launchBtn) launchBtn.addEventListener('click', ()=> window.open('/test_personas', '_blank'));
++      const openTests = document.getElementById('open-tests-folder');
++      if (openTests) openTests.addEventListener('click', async ()=>{
++        try {
++          // attempt to open the tests folder via server route if available
++          const r = await fetch('/api/open_pgn_notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({filename: ''})});
++          alert('Open folder action triggered (if supported on this OS)');
++        } catch (e) { alert('Open folder not supported: '+e); }
++      });
++    } catch(e) { console.warn('tools wiring failed', e); }
++    // Tools panel wiring: persona tuning, engine info, simulator batch
++    try {
++      async function getJson(url){ const r=await fetch(url); return r.json(); }
++
++      // Persona tuning
++      const personaSelect = document.getElementById('persona_select_tune');
++      const fields = {
++        depth: document.getElementById('tune_depth'),
++        multipv: document.getElementById('tune_multipv'),
++        temp: document.getElementById('tune_temp'),
++        mercy_mate_in: document.getElementById('tune_mercy_mate_in'),
++        mercy_mate_keep: document.getElementById('tune_mercy_mate_keep'),
++        mercy_gap: document.getElementById('tune_mercy_gap'),
++        mercy_keep: document.getElementById('tune_mercy_keep'),
++        end_pieces: document.getElementById('tune_endgame_pieces'),
++        end_depth: document.getElementById('tune_endgame_depth'),
++        end_temp: document.getElementById('tune_endgame_temp')
++      };
++
++      async function loadPersona(p){
++        try{
++          const res = await getJson('/api/persona/' + encodeURIComponent(p));
++          if(!res.ok) { console.warn('failed to load persona', res); return; }
++          const cfg = res.config || {};
++          fields.depth.value = cfg.depth || '';
++          fields.multipv.value = cfg.multipv || '';
++          fields.temp.value = cfg.pick_temperature || '';
++          const mercy = cfg.mercy || {};
++          fields.mercy_mate_in.value = mercy.mate_in || '';
++          fields.mercy_mate_keep.value = mercy.mate_keep_prob || '';
++          fields.mercy_gap.value = mercy.eval_gap_threshold || '';
++          fields.mercy_keep.value = mercy.eval_keep_prob || '';
++          fields.end_pieces.value = cfg.pieces_threshold || '';
++          fields.end_depth.value = cfg.endgame_depth_delta || '';
++          fields.end_temp.value = cfg.endgame_temp_delta || '';
++        }catch(e){ console.warn('load persona failed', e); }
++      }
++
++      if(personaSelect){
++        personaSelect.addEventListener('change', ()=> loadPersona(personaSelect.value));
++        // initial load
++        loadPersona(personaSelect.value);
++      }
++
++      document.getElementById('tune_save_btn').addEventListener('click', async ()=>{
++        const p = personaSelect.value;
++        const payload = { depth: parseInt(fields.depth.value)||null, multipv: parseInt(fields.multipv.value)||null, pick_temperature: parseFloat(fields.temp.value)||null, pieces_threshold: parseInt(fields.end_pieces.value)||null, endgame_depth_delta: parseInt(fields.end_depth.value)||null, endgame_temp_delta: parseFloat(fields.end_temp.value)||null };
++        payload.mercy = { mate_in: parseInt(fields.mercy_mate_in.value)||null, mate_keep_prob: parseFloat(fields.mercy_mate_keep.value)||null, eval_gap_threshold: parseInt(fields.mercy_gap.value)||null, eval_keep_prob: parseFloat(fields.mercy_keep.value)||null };
++        try{
++          const r = await fetch('/api/persona/' + encodeURIComponent(p), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
++          const j = await r.json();
++          if(j.ok) alert('Persona saved'); else alert('Save failed: '+(j.error||JSON.stringify(j)));
++        }catch(e){ alert('Save request failed: '+e); }
++      });
++
++      document.getElementById('tune_reset_btn').addEventListener('click', async ()=>{
++        const p = personaSelect.value;
++        try{
++          const r = await fetch('/api/persona/' + encodeURIComponent(p) + '/reset', {method:'POST'});
++          const j = await r.json();
++          if(j.ok){ alert('Reset to defaults'); loadPersona(p); } else alert('Reset failed');
++        }catch(e){ alert('Reset request failed: '+e); }
++      });
++
++      // Engine info
++      async function loadEngineInfo(){
++        try{
++          const j = await getJson('/api/engine_info');
++          if(!j.ok) return;
++          const e = j.engine || {};
++          const el = document.getElementById('engine_info');
++          el.textContent = (e.engine_detected ? 'Detected: ' + (e.engine_path || '(on PATH)') : 'Engine not found');
++          const t = document.getElementById('engine_default_time'); if(t) t.value = e.default_engine_time || 0.05;
++          const m = document.getElementById('engine_multipv_cap'); if(m) m.value = e.multipv_cap || 10;
++        }catch(e){ console.warn('engine info load failed', e); }
++      }
++      loadEngineInfo();
++
++      // Simulator batch run
++      document.getElementById('sim_run').addEventListener('click', async ()=>{
++        const wp = document.getElementById('sim_white').value;
++        const bp = document.getElementById('sim_black').value;
++        const count = parseInt(document.getElementById('sim_count').value) || 1;
++        const time = parseFloat(document.getElementById('sim_time').value) || 0.05;
++        const seed = document.getElementById('sim_seed').value || null;
++        const payload = { white_persona: wp, black_persona: bp, count: count, engine_time: time, seed: seed };
++        try{
++          const r = await fetch('/api/simulate_batch', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
++          const j = await r.json();
++          if(!j.ok){ alert('Batch failed: '+(j.error||JSON.stringify(j))); return; }
++          const sum = document.getElementById('sim_last_summary');
++          sum.textContent = `Ran ${j.count} games. Files: ${j.files.join(', ')} CSV: ${j.csv}`;
++          const csvLink = document.getElementById('sim_csv_link');
++          if(j.csv){ csvLink.href = '/games/tests/' + j.csv; csvLink.textContent = j.csv; csvLink.onclick = null; }
++        }catch(e){ alert('Batch request failed: '+e); }
++      });
++
++      // Debugging
++      document.getElementById('show_last_engine').addEventListener('click', async ()=>{
++        try{
++          const r = await fetch('/api/open_engine_debug', {method:'GET'});
++          const j = await r.json();
++          if(j.ok){ document.getElementById('debug_output').textContent = j.output.join('\n'); }
++          else alert('Failed to load debug');
++        }catch(e){ alert('Debug request failed: '+e); }
++      });
++
++    } catch(e) { console.warn('tools panel wiring failed', e); }
+   // Create piece palette for free-board editing (injected into board-wrap)
+   try {
+     const boardWrap = document.querySelector('.board-wrap');
+@@ -791,7 +1130,10 @@ window.addEventListener('load', async () => {
+           palette.appendChild(img);
+         }
+       }
+-      boardWrap.appendChild(palette);
++      // Prefer placeholder in Free tab if present, otherwise fall back to board wrap
++      const placeholder = document.getElementById('piece-palette-placeholder');
++      if (placeholder) placeholder.appendChild(palette);
++      else boardWrap.appendChild(palette);
+     }
+   } catch (e) { console.warn('Failed to create piece palette', e); }
+ 
+@@ -855,13 +1197,23 @@ window.addEventListener('load', async () => {
+       freeToggle.checked = freeBoardMode;
+       freeToggle.addEventListener('change', () => {
+         freeBoardMode = !!freeToggle.checked;
+-        // disable engine replies when entering free-board mode
+-        if (freeBoardMode && typeof setEngineReply === 'function') {
+-          try { setEngineReply(false); } catch (e) {}
++        // disable game/engine mode when entering free-board mode
++        if (freeBoardMode) {
++          try { setPlayEngine(false); } catch (e) {}
+         }
+         const pal = document.getElementById('piece-palette');
+         if (pal) pal.style.display = freeBoardMode ? 'flex' : 'none';
+         setStatus(freeBoardMode ? 'Free board editing enabled' : 'Free board editing disabled');
++        // When leaving free-board mode (i.e., entering game mode), ensure captured trays are visible
++        // Also ensure engine controls are disabled while in free-board mode
++        try {
++          if (freeBoardMode) {
++            if (playBtn) playBtn.disabled = true;
++          } else {
++            if (playBtn) playBtn.disabled = false;
++            try { renderCapturedTrays(); } catch (e) { /* ignore */ }
++          }
++        } catch (e) { /* ignore */ }
+       });
+     }
+     if (exportBtn) {
+@@ -959,6 +1311,19 @@ window.addEventListener('load', async () => {
+           freeBoardMode = false;
+           if (freeToggle) { freeToggle.checked = false; }
+           const pal = document.getElementById('piece-palette'); if (pal) pal.style.display = 'none';
++
++          // Ensure player is the chosen starting color and persist preference
++          if (playerSelect && startSide) {
++            const color = (startSide.value === 'black') ? 'black' : 'white';
++            try { playerSelect.value = color; localStorage.setItem('playerColor', color); } catch (e) {}
++            try { if (board && typeof board.orientation === 'function') board.orientation(color); } catch (e) {}
++          }
++
++          // Start engine-enabled play from this position without resetting server position
++          try {
++            setPlayEngine(true, { keepPosition: true });
++          } catch (e) { /* ignore */ }
++
+           setStatus('Game started from custom position');
+         } catch (e) {
+           console.warn('start from pos failed', e);
+@@ -968,6 +1333,8 @@ window.addEventListener('load', async () => {
+     }
+     // hide palette by default until free-board mode enabled
+     const pal = document.getElementById('piece-palette'); if (pal) pal.style.display = freeBoardMode ? 'flex' : 'none';
++    // Tray update controls
++    // Manual tray update UI removed; captured trays update automatically when FEN changes
+   } catch (e) { console.warn('free-board wireup failed', e); }
+   // Initialize game and history from server state
+   game.load(init.fen);
+@@ -988,77 +1355,121 @@ window.addEventListener('load', async () => {
+ 
+   // Reset button handler
+   const resetBtn = document.getElementById('reset-btn');
+-  resetBtn.addEventListener('click', async () => {
+-    const resp = await postReset();
+-    if (resp && resp.fen) {
+-      // Reset history and load server position
+-      historyFens = [];
+-      historyIndex = -1;
+-      setFen(resp.fen, true);
+-      // clear captured pieces on reset
+-      try { clearCapturedTrays(); } catch (e) {}
+-      // clearing any game-over state
+-    gameOver = false;
+-    autoPgnSaved = false;
+-      setStatus('Position reset');
+-      // If play mode active and player is black, ask engine to play White's first move
+-      if (playEngine && playerSelect && playerSelect.value === 'black') {
++  if (resetBtn) {
++    resetBtn.addEventListener('click', async () => {
++      // If in free-board mode, a Reset should restore the standard starting position
++      if (freeBoardMode) {
+         try {
+-          const r2 = await postEngineMove();
+-          if (r2 && r2.fen) {
+-            historyFens = [];
+-            historyIndex = -1;
+-            setFen(r2.fen, true);
+-            setStatus('Engine played first move');
+-          } else {
+-            setStatus('Engine move failed');
+-          }
++          const startFen = (new Chess()).fen();
++          game.load(startFen);
++          board.position(startFen);
++          const fen = startFen;
++          await copyFenToClipboard(fen);
++          setStatus('Free board reset to starting position — FEN copied');
+         } catch (e) {
+-          setStatus('Network error: engine move failed');
++          console.warn('free reset failed', e);
++          setStatus('Free board reset failed');
+         }
++        return;
+       }
+-    } else {
+-      setStatus('Reset failed');
+-    }
+-  });
+ 
+-  // Resign button handler
+-  const resignBtn = document.getElementById('resign-btn');
+-  if (resignBtn) {
+-    resignBtn.addEventListener('click', async () => {
+-      const ok = confirm('Are you sure you want to resign this game?');
+-      if (!ok) return;
+-      // Determine which side the human is playing from UI
+-      const playerSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
+-      try {
+-        const opponentName = engineReplyEnabled ? 'Engine' : 'Opponent';
+-        const payload = { resigned_side: playerSide, user_side: playerSide, user_name: (playerNameInput && playerNameInput.value) ? playerNameInput.value : 'Player', opponent_name: (opponentNameInput && opponentNameInput.value) ? opponentNameInput.value : opponentName, engine: !!engineReplyEnabled };
+-        const r = await fetch('/api/resign', {
+-          method: 'POST', headers: {'Content-Type': 'application/json'},
+-          body: JSON.stringify(payload)
+-        });
+-        const data = await r.json();
+-        if (data && data.fen) {
+-          // mark game over and show result
+-          gameOver = true;
+-          autoPgnSaved = true;
+-          historyFens = [];
+-          historyIndex = -1;
+-          setFen(data.fen, true);
+-          if (data.winner) {
+-            setStatus(`Resigned — ${data.winner} wins` + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
+-            const el = document.getElementById('result-indicator');
+-            if (el) el.textContent = `${data.winner} wins (resignation)`;
+-          } else {
+-            setStatus('Resigned' + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
++      const resp = await postReset();
++      if (resp && resp.fen) {
++        // Reset history and load server position
++        historyFens = [];
++        historyIndex = -1;
++        setFen(resp.fen, true);
++        // clear captured pieces on reset
++        try { clearCapturedTrays(); } catch (e) {}
++        // clearing any game-over state
++        gameOver = false;
++        autoPgnSaved = false;
++        setStatus('Position reset');
++        // If play mode active and player is black, ask engine to play White's first move
++        if (playEngine && playerSelect && playerSelect.value === 'black') {
++          try {
++            const r2 = await postEngineMove();
++            if (r2 && r2.fen) {
++              historyFens = [];
++              historyIndex = -1;
++              setFen(r2.fen, true);
++              setStatus('Engine played first move');
++            } else {
++              setStatus('Engine move failed');
++            }
++          } catch (e) {
++            setStatus('Network error: engine move failed');
+           }
+         }
+-      } catch (e) {
+-        setStatus('Network error: resign failed');
++      } else {
++        setStatus('Reset failed');
+       }
+     });
+   }
+ 
++  // Game-tab reset button (server reset)
++  const gameResetBtn = document.getElementById('game-reset-btn');
++  if (gameResetBtn) {
++    gameResetBtn.addEventListener('click', async () => {
++      // Ensure free-board is not active
++      if (freeBoardMode) {
++        // Exit free-board and restore saved game or starting position before resetting
++        freeBoardMode = false;
++        const pal = document.getElementById('piece-palette'); if (pal) pal.style.display = 'none';
++        if (savedGameFenBeforeFree) {
++          try { setFen(savedGameFenBeforeFree, false); } catch (e) { }
++          savedGameFenBeforeFree = null;
++        }
++      }
++      const resp = await postReset();
++      if (resp && resp.fen) {
++        historyFens = [];
++        historyIndex = -1;
++        setFen(resp.fen, true);
++        try { clearCapturedTrays(); } catch (e) {}
++        gameOver = false; autoPgnSaved = false;
++        setStatus('Position reset');
++      } else {
++        setStatus('Reset failed');
++      }
++    });
++  }
++
++  // Resign logic: extracted to `doResign()` and invoked by the play button when acting as Resign
++  async function doResign() {
++    const ok = confirm('Are you sure you want to resign this game?');
++    if (!ok) return;
++    try { setPlayEngine(false); } catch (e) { /* ignore if not initialized yet */ }
++    // Determine which side the human is playing from UI
++    const playerSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
++    try {
++      const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
++      const payload = { resigned_side: playerSide, user_side: playerSide, user_name: 'Player', opponent_name: opponentName, engine: !!playEngine };
++      const r = await fetch('/api/resign', {
++        method: 'POST', headers: {'Content-Type': 'application/json'},
++        body: JSON.stringify(payload)
++      });
++      const data = await r.json();
++      if (data && data.fen) {
++        // mark game over and show result
++        gameOver = true;
++        autoPgnSaved = true;
++        historyFens = [];
++        historyIndex = -1;
++        setFen(data.fen, true);
++        if (data.winner) {
++          setStatus(`Resigned — ${data.winner} wins` + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
++          const el = document.getElementById('result-indicator');
++          if (el) el.textContent = `${data.winner} wins (resignation)`;
++        } else {
++          setStatus('Resigned' + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
++        }
++      }
++    } catch (e) {
++      setStatus('Network error: resign failed');
++    }
++  }
++
+   // Save PGN button
+   const savePgnBtn = document.getElementById('save-pgn-btn');
+   if (savePgnBtn) {
+@@ -1071,8 +1482,8 @@ window.addEventListener('load', async () => {
+       if (resultText.includes('Draw')) result = '1/2-1/2';
+       try {
+         const userSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
+-        const opponentName = engineReplyEnabled ? 'Engine' : 'Opponent';
+-        const payload = { result, user_side: userSide, user_name: (playerNameInput && playerNameInput.value) ? playerNameInput.value : 'Player', opponent_name: (opponentNameInput && opponentNameInput.value) ? opponentNameInput.value : opponentName, engine: !!engineReplyEnabled };
++        const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
++        const payload = { result, user_side: userSide, user_name: 'Player', opponent_name: opponentName, engine: !!playEngine };
+         const r = await fetch('/api/save_pgn', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+         const data = await r.json();
+         if (data && data.pgn_file) {
+@@ -1167,10 +1578,10 @@ window.addEventListener('load', async () => {
+ 
+   // Bot profiles
+   const botProfiles = {
+-    'Student':     { skill: 2, fast: 0.12, deep: 0.80 },
+-    'Grasshopper': { skill: 1, fast: 0.10, deep: 0.60 },
+-    'Adept':       { skill: 4, fast: 0.20, deep: 1.00 },
+-    'Ninja':       { skill: 6, fast: 0.30, deep: 1.50 },
++    'Grasshopper': { skill: 0, fast: 0.10, deep: 0.60 },
++    'Student':     { skill: 1, fast: 0.12, deep: 0.80 },
++    'Adept':       { skill: 3, fast: 0.20, deep: 1.00 },
++    'Ninja':       { skill: 5, fast: 0.30, deep: 1.50 },
+     'Sensei':      { skill: 8, fast: 0.50, deep: 2.50 }
+   };
+ 
+@@ -1178,101 +1589,101 @@ window.addEventListener('load', async () => {
+     if (!name || !botProfiles[name]) return;
+     const p = botProfiles[name];
+     if (skillSlider) { skillSlider.value = p.skill; skillVal.textContent = p.skill; }
+-    const mode = (thinkingSpeedSelect && thinkingSpeedSelect.value) ? thinkingSpeedSelect.value : 'fast';
+-    const t = mode === 'deep' ? p.deep : p.fast;
+-    if (timeSlider) { timeSlider.value = t; timeVal.textContent = t; }
+   }
+ 
+-  // If opponent select changes, apply profile
+-  if (opponentNameInput) {
+-    opponentNameInput.addEventListener('change', () => {
+-      applyBotProfile(opponentNameInput.value);
+-    });
+-  }
+-  if (thinkingSpeedSelect) {
+-    thinkingSpeedSelect.addEventListener('change', () => {
+-      // reapply profile to update the time value
+-      const name = opponentNameInput ? opponentNameInput.value : null;
+-      applyBotProfile(name);
++  // Persona select drives bot profile; opponent-name remains for display only
++  if (enginePersonaSelect) {
++    enginePersonaSelect.addEventListener('change', () => {
++      applyBotProfile(enginePersonaSelect.value);
+     });
+-    // apply profile once on load so controls reflect default bot when idle
+-    try { applyBotProfile(opponentNameInput ? opponentNameInput.value : null); } catch (e) { }
+-  }
+-
+-  // Engine reply toggle/button (visible beside board). Track enable state in `engineReplyEnabled`.
+-  const engineReplyBtn = document.getElementById('engine-reply-btn');
+-  const engineControls = document.getElementById('engine-controls');
+-  // playback flag
+-  let playEngine = false;
+-  try { const saved = localStorage.getItem('engineReply'); engineReplyEnabled = saved === '1'; } catch (e) {}
+-  function setEngineReply(on) {
+-    engineReplyEnabled = !!on;
+-    if (engineReplyBtn) {
+-      engineReplyBtn.textContent = engineReplyEnabled ? 'Engine: On' : 'Engine: Off';
+-      engineReplyBtn.classList.toggle('active', engineReplyEnabled);
+-      engineReplyBtn.disabled = playEngine ? true : false;
+-    }
+-    try { localStorage.setItem('engineReply', engineReplyEnabled ? '1' : '0'); } catch (e) {}
+-    updateEngineControlsVisibility();
+-  }
+-  function updateEngineControlsVisibility() {
+-    if (!engineControls) return;
+-    if (!playEngine) { engineControls.style.display = 'none'; return; }
+-    engineControls.style.display = engineReplyEnabled ? 'inline-block' : 'none';
++    // apply profile once on load so controls reflect default persona when idle
++    try { applyBotProfile(enginePersonaSelect ? enginePersonaSelect.value : null); } catch (e) { }
+   }
+-  if (engineReplyBtn) engineReplyBtn.addEventListener('click', () => setEngineReply(!engineReplyEnabled));
+-  setEngineReply(engineReplyEnabled);
+ 
+-  // Play Engine button: toggles auto-play mode (engine replies automatically)
++  // Game start/stop (replaces old engine toggle). Track active game state in `playEngine`.
++  // playback flag (game active)
+   const playBtn = document.getElementById('play-engine-btn');
+-  function setPlayEngine(on) {
++  function setPlayEngine(on, opts = {}) {
+     playEngine = !!on;
+-    if (playEngine) {
+-      // force engine replies on when in play mode and disable manual toggle
+-      setEngineReply(true);
+-      if (engineReplyBtn) engineReplyBtn.disabled = true;
+-    } else {
+-      if (engineReplyBtn) engineReplyBtn.disabled = false;
++    // when a game is active, persona cannot be changed
++    if (enginePersonaSelect) enginePersonaSelect.disabled = playEngine;
++    if (playBtn) {
++      playBtn.textContent = playEngine ? 'Resign' : 'Start Game';
++      try {
++        playBtn.classList.remove('play-start','play-resign');
++        playBtn.classList.add(playEngine ? 'play-resign' : 'play-start');
++      } catch (e) {}
+     }
+-    if (playBtn) playBtn.textContent = playEngine ? 'Stop Engine' : 'Play Engine';
+-    setStatus(playEngine ? 'Playing vs engine' : 'Stopped engine');
+-    updateEngineControlsVisibility();
++    setStatus(playEngine ? 'Game started' : 'Game stopped');
+ 
+     // If turning on play mode, reset the board to start a fresh game
+     if (playEngine) {
+-      postReset().then(resp => {
+-        if (resp && resp.fen) {
+-          // reset local history and load server position
+-          historyFens = [];
+-          historyIndex = -1;
+-          setFen(resp.fen, true);
+-          setStatus('Position reset — Playing vs engine');
+-          // If player sits Black, have engine (White) play the first move
+-          if (playerSelect && playerSelect.value === 'black') {
+-            postEngineMove().then(r2 => {
+-              if (r2 && r2.fen) {
+-                historyFens = [];
+-                historyIndex = -1;
+-                setFen(r2.fen, true);
+-                setStatus('Engine played first move — Playing vs engine');
+-              } else {
++      if (opts && opts.keepPosition) {
++        // Start play mode from the existing server position (do not reset)
++        try { renderCapturedTrays(); } catch (e) {}
++        if (playerSelect && playerSelect.value === 'black') {
++          postEngineMove().then(r2 => {
++            if (r2 && r2.fen) {
++              historyFens = [];
++              historyIndex = -1;
++              setFen(r2.fen, true);
++              try { renderCapturedTrays(); } catch (e) { }
++              setStatus('Engine played first move — Game started');
++            } else {
++              setStatus('Engine failed to play first move');
++            }
++          }).catch(() => { setStatus('Engine failed to play first move'); });
++        }
++      } else {
++        postReset().then(resp => {
++          if (resp && resp.fen) {
++            // reset local history and load server position
++            historyFens = [];
++            historyIndex = -1;
++            setFen(resp.fen, true);
++            setStatus('Position reset — Game started');
++            try { renderCapturedTrays(); } catch (e) { }
++            // If player sits Black, have engine (White) play the first move
++            if (playerSelect && playerSelect.value === 'black') {
++              postEngineMove().then(r2 => {
++                if (r2 && r2.fen) {
++                  historyFens = [];
++                  historyIndex = -1;
++                  setFen(r2.fen, true);
++                  try { renderCapturedTrays(); } catch (e) { }
++                  setStatus('Engine played first move — Game started');
++                } else {
++                  setStatus('Engine failed to play first move');
++                }
++              }).catch(() => {
+                 setStatus('Engine failed to play first move');
+-              }
+-            }).catch(() => {
+-              setStatus('Network error: engine move failed');
+-            });
++              });
++            }
+           }
+-        } else {
+-          setStatus('Position reset failed');
+-        }
+-      }).catch(() => {
+-        setStatus('Network error: reset failed');
+-      });
++        }).catch(() => { setStatus('Failed to reset before starting game'); });
++      }
++    } else {
++      // game stopped
++      try { renderCapturedTrays(); } catch (e) {}
+     }
+   }
+-  if (playBtn) {
+-    playBtn.addEventListener('click', () => {
+-      setPlayEngine(!playEngine);
++
++    if (playBtn) {
++    // ensure button is enabled and wired
++    try { playBtn.disabled = false; } catch (e) {}
++    playBtn.addEventListener('click', async (ev) => {
++      console.debug('playBtn clicked — current playEngine=', playEngine);
++      try {
++        if (!playEngine) {
++          // start the game
++            setPlayEngine(true);
++        } else {
++          // act as Resign when pressed during an active game
++          await doResign();
++        }
++      } catch (e) { console.error('playBtn handler threw', e); }
+     });
++      // ensure initial class matches state on load
++      try { playBtn.classList.remove('play-start','play-resign'); playBtn.classList.add(playEngine ? 'play-resign' : 'play-start'); } catch (e) {}
+   }
+ });
+diff --git a/OneDrive/Desktop/chess tutor v1.1/templates/index.html b/OneDrive/Desktop/chess tutor v1.1/templates/index.html
+index f698f77..c8c208a 100644
+--- a/OneDrive/Desktop/chess tutor v1.1/templates/index.html	
++++ b/OneDrive/Desktop/chess tutor v1.1/templates/index.html	
+@@ -3,7 +3,7 @@
+   <head>
+     <meta charset="utf-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1" />
+-    <title>Chess Tutor V1.1</title>
++    <title>Chess</title>
+ 
+     <link rel="stylesheet" href="/static/vendor/chessboard-1.0.0.min.css" />
+     <link rel="stylesheet" href="/static/style.css" />
+@@ -13,38 +13,92 @@
+ 
+ 
+     <div class="page-header">
+-      <h1>Chess Tutor V1.1</h1>
++      <h1>Chess</h1>
+       <button id="theme-toggle" aria-pressed="false">Dark Mode</button>
++      <div id="persona-indicator" class="persona-indicator">Persona: Student</div>
+     </div>
+ 
+     <div class="layout">
+           <div class="left-col">
+-        <div class="board-wrap">
+-          <div id="board" style="width: 100%; max-width:480px; margin-bottom:12px"></div>
+-          <div class="board-controls">
+-            <button id="reset-btn" class="ctrl small">Reset</button>
+-            <button id="resign-btn" class="ctrl small danger">Resign</button>
+-            <button id="engine-reply-btn" class="ctrl small">Engine: Off</button>
+-          </div>
+-          <div class="captured-trays">
+-            <div class="captured-tray">
+-              <div id="tray-white" class="tray-items"></div>
+-            </div>
+-            <div class="captured-tray">
+-              <div id="tray-black" class="tray-items"></div>
++            <div class="board-wrap" style="position:relative">
++              <div class="board-top-controls">
++                <button id="play-engine-btn" class="ctrl small play-top">Start Game</button>
++              </div>
++              <div id="board-container">
++                <div id="board"></div>
++              </div>
++
++              <!-- Bottom controls: Export FEN and Download PGN (side-by-side under board) -->
++              <div class="board-bottom-controls">
++                <button id="export-fen-btn" class="ctrl small">Export FEN</button>
++                <button id="save-pgn-btn" class="ctrl small">Download PGN</button>
++              </div>
++
++              <!-- Small floating Tools button (links to full Tools page) -->
++              <a id="open-tools-btn" href="/test_personas" title="Tools" style="position:absolute;right:10px;bottom:10px;z-index:60;padding:8px 10px;border-radius:6px;background:var(--card-accent,#28a745);color:#fff;text-decoration:none;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.15)">Tools</a>
++            <div class="captured-trays">
++              <div class="captured-tray">
++                  <div id="tray-white" class="tray-items"></div>
++                  <!-- tray image only -->
++              </div>
++              <div class="captured-tray">
++                  <div id="tray-black" class="tray-items"></div>
++                  <!-- tray image only -->
++              </div>
+             </div>
+           </div>
+-        </div>
+-        <div style="margin-top:8px">FEN: <span id="fen"></span></div>
+       </div>
+ 
+       <div class="right-col">
+         <div class="turn-area">
+-          <div id="status" class="turn-status"></div>
+-          <div id="result-indicator"></div>
+-        </div>
++            <div id="status" class="turn-status"></div>
++            <div id="result-indicator"></div>
++          </div>
++
++          <div class="tabs" role="tablist" aria-label="Modes">
++            <button class="tab-btn" data-tab="game" role="tab" aria-selected="true">Game</button>
++            <button class="tab-btn" data-tab="free" role="tab">Free Board</button>
++            <!-- Puzzles tab removed -->
++            <button class="tab-btn" data-tab="study" role="tab">Study</button>
++          </div>
+ 
+-          <div class="accordion">
++          <div class="tab-cards">
++            <div class="tab-card" id="card-game" data-tab="game">
++              <h3>Game</h3>
++              <p>Normal play: use controls to start/stop games, save PGN, and toggle engine play.</p>
++              <div style="margin-top:8px">
++                <button id="game-reset-btn" class="ctrl small">Reset</button>
++              </div>
++            </div>
++            <div class="tab-card" id="card-free" data-tab="free">
++              <h3>Free Board</h3>
++              <p>Drag pieces freely to create custom positions. Use the piece palette below the board.</p>
++              <div class="free-controls" style="margin-top:8px">
++                <label style="margin-left:8px">
++                  <input type="checkbox" id="free-board-toggle" /> Free Board
++                </label>
++                <button id="clear-board-btn" class="ctrl small" style="margin-left:8px">Clear Board</button>
++                <button id="reset-btn" class="ctrl small" style="margin-left:8px">Reset</button>
++                <label style="margin-left:8px">Start to move:
++                  <select id="start-to-move">
++                    <option value="white">White</option>
++                    <option value="black">Black</option>
++                  </select>
++                </label>
++                <button id="start-from-pos-btn" class="ctrl small" style="margin-left:8px">Start From Position</button>
++              </div>
++              <div id="piece-palette-placeholder" style="margin-top:8px"></div>
++            </div>
++            <!-- Puzzles card removed -->
++            <div class="tab-card" id="card-study" data-tab="study">
++              <h3>Study / Analysis</h3>
++              <p>Study tools and analysis appear here (coming soon).</p>
++              <div style="margin-top:8px">FEN: <span id="fen"></span></div>
++            </div>
++            <!-- Tools moved to dedicated /test_personas page; replaced by floating button on board -->
++          </div>
++
++            <div class="accordion">
+           <div class="accordion-item">
+             <button class="accordion-toggle">Controls</button>
+             <div class="accordion-content">
+@@ -54,61 +108,32 @@
+                   <option value="black">Black (bottom)</option>
+                 </select>
+               </label>
++              <!-- Player color chooser is above -->
+               <div style="margin-top:8px">
+-                <label>Player name:
+-                  <input id="player-name" type="text" value="Player" />
+-                </label>
+-              </div>
+-              <div style="margin-top:8px">
+-                <label>Opponent:
+-                  <select id="opponent-name">
+-                      <option value="Opponent">Opponent</option>
+-                      <option value="Grasshopper">Grasshopper</option>
+-                      <option selected value="Student">Student</option>
+-                      <option value="Adept">Adept</option>
+-                      <option value="Ninja">Ninja</option>
+-                      <option value="Sensei">Sensei</option>
++                <label>Persona:
++                  <select id="engine-persona" title="Select a playing persona; affects engine strength and style">
++                    <option value="">(none)</option>
++                    <option value="Grasshopper">Grasshopper</option>
++                    <option value="Student" selected>Student</option>
++                    <option value="Adept">Adept</option>
++                    <option value="Ninja">Ninja</option>
++                    <option value="Sensei">Sensei</option>
+                   </select>
+                 </label>
++                <div class="hint" style="margin-top:6px">Persona controls engine strength/style (e.g. Grasshopper = weaker, Sensei = stronger).</div>
+               </div>
++              <!-- Thinking speed selector removed: personas use an internal engine-time default -->
+               <div id="players-display" style="margin-top:8px; font-weight:600"></div>
+-                  <div style="margin-top:8px">
+-                        <button id="play-engine-btn" class="ctrl small">Play Engine</button>
+-                        <button id="save-pgn-btn" class="ctrl small">Download PGN</button>
+-                        <label style="margin-left:8px">
+-                          <input type="checkbox" id="free-board-toggle" /> Free Board
+-                        </label>
+-                        <button id="export-fen-btn" class="ctrl small" style="margin-left:6px">Export FEN</button>
+-                        <button id="clear-board-btn" class="ctrl small" style="margin-left:6px">Clear Board</button>
+-                        <label style="margin-left:8px">Start to move:
+-                          <select id="start-to-move">
+-                            <option value="white">White</option>
+-                            <option value="black">Black</option>
+-                          </select>
+-                        </label>
+-                        <button id="start-from-pos-btn" class="ctrl small" style="margin-left:6px">Start From Position</button>
+-                    <!-- popout removed: permanent move list below menus -->
+-                  </div>
++              <!-- Captured trays update controls removed; captured pieces update automatically during play -->
++                  <!-- Free Board controls moved into Free tab -->
+               <div class="hint" style="margin-top:8px">Tip: Use the Arrow keys to step through moves.</div>
+             </div>
+           </div>
+ 
+-          <div class="accordion-item">
+-            <button class="accordion-toggle">Engine</button>
+-            <div class="accordion-content">
+-              <div class="hint">Toggle engine reply using the button beside the board.</div>
+-              <div id="engine-controls" class="engine-controls">
+-                <!-- Engine sliders hidden: values are stored in hidden inputs so profile logic still works -->
+-                <input id="engine-time" type="hidden" value="0.1" />
+-                <input id="engine-skill" type="hidden" value="10" />
+-                <span id="engine-time-val" class="visually-hidden">0.1</span>
+-                <span id="engine-skill-val" class="visually-hidden">10</span>
+-              </div>
+-            </div>
+-          </div>
++          <!-- Engine controls removed; persona and game start/stop handled from Controls -->
+ 
+           </div>
+-          <div id="move-list" class="move-list" style="margin-top:12px"></div>
++          <!-- Move list removed per user request -->
+         </div>
+       </div>
+     </div>

@@ -1,0 +1,11 @@
+file,white,black,result,moves,seed,reason
+sim_student_vs_student_20260110_204059_1.pgn,student,student,0-1,38,,game_over
+sim_student_vs_student_20260110_204130_2.pgn,student,student,0-1,102,,game_over
+sim_student_vs_student_20260110_204145_3.pgn,student,student,0-1,54,,game_over
+sim_student_vs_student_20260110_204212_4.pgn,student,student,0-1,94,,game_over
+sim_student_vs_student_20260110_204239_5.pgn,student,student,0-1,96,,game_over
+sim_student_vs_student_20260110_204335_6.pgn,student,student,*,200,,max_moves_reached
+sim_student_vs_student_20260111_032130_7.pgn,student,student,*,82,,engine_failed
+sim_student_vs_student_20260111_042316_8.pgn,student,student,*,0,,engine_failed
+sim_student_vs_student_20260111_052453_9.pgn,student,student,*,17,,engine_failed
+sim_student_vs_student_20260111_052509_10.pgn,student,student,*,0,,engine_failed

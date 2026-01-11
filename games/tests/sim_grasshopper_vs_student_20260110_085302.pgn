@@ -1,0 +1,17 @@
+[Event "Persona Simulation"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "0-1"]
+
+1. e3 d5 2. h3 e6 3. Nc3 b6 4. b3 Nd7 5. a3 a6 6. Be2 h6 7. a4 Bd6 8. a5 b5 9.
+Bg4 Ndf6 10. Nce2 Bb7 11. Bf3 Rb8 12. d4 Ne7 13. Bd2 Ne4 14. Qc1 Nxd2 15. Bxd5
+exd5 16. Ra3 Kd7 17. g4 g6 18. Kxd2 Rc8 19. Kc3 c5 20. b4 c4 21. Qb2 Nc6 22.
+Ng3 Ke8 23. Ra1 Rh7 24. Qb1 Kf8 25. f4 Ra8 26. h4 Kg8 27. g5 Qf8 28. Kb2 hxg5
+29. Qc1 gxf4 30. N3e2 c3+ 31. Kb1 Rb8 32. Nf3 Qg7 33. Ng5 Rh6 34. Rh3 Rh5 35.
+Ra3 Nxb4 36. exf4 Bc8 37. Rg3 Bf5 38. Ra2 Rf8 39. Rg1 Rxh4 40. Ka1 Rh8 41. Rh1
+Rb8 42. Qf1 Rxh1 43. Rb2 cxb2+ 44. Kxb2 Rxf1 45. Nh7 Be7 46. Ng1 Qh6 47. c4
+bxc4 48. Nh3 Nd3+ 49. Ka2 Kxh7 50. Ng5+ Qxg5 51. fxg5 Bd8 52. Ka3 Rbb1 53. Ka4
+Rbc1 54. Ka3 Rc2 55. Ka4 Ra1# 0-1

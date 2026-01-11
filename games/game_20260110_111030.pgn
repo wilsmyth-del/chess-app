@@ -1,0 +1,16 @@
+[Event "Chess Tutor"]
+[Site "?"]
+[Date "2026.01.10"]
+[Round "?"]
+[White "Player"]
+[Black "Grasshopper"]
+[Result "0-1"]
+
+1. d4 Nf6 2. Bf4 g6 3. Nf3 e6 4. e3 c5 5. Nbd2 d5 6. c4 Qb6 7. Bd3 Qxb2 8. Rb1
+Qa3 9. Qc2 Nh5 10. Bg5 Na6 11. Rb3 Qb4 12. Rxb4 cxd4 13. Qb1 Bxb4 14. exd4 O-O
+15. Ne5 Kh8 16. c5 Kg8 17. O-O h6 18. Bxh6 g5 19. Bxf8 Bc3 20. Bd6 Bd7 21. Nxd7
+Nxc5 22. Nxc5 b6 23. Na4 e5 24. Nxc3 e4 25. Be2 b5 26. Qxb5 Rd8 27. Bc7 Rc8 28.
+Qc6 Nf6 29. Qxf6 a5 30. Bxa5 Kf8 31. Qxg5 Ke8 32. Qxd5 Rc4 33. Qxc4 Ke7 34.
+Qc7+ Ke8 35. Nd5 Kf8 36. Nf6 e3 37. fxe3 Kg7 38. Qc6 Kh6 39. d5 Kg7 40. e4 Kf8
+41. e5 Ke7 42. Nde4 Kf8 43. d6 Kg7 44. e6 Kf8 45. e7+ Kg7 46. d7 Kg6 47. d8=Q
+Kg7 48. e8=Q Kh6 49. Qxf7 0-1

@@ -1,0 +1,12 @@
+[Event "Chess Tutor"]
+[Site "?"]
+[Date "2026.01.09"]
+[Round "?"]
+[White "Stockfish"]
+[Black "wilsmyth"]
+[Result "1-0"]
+
+1. e4 d5 2. d4 dxe4 3. Ne2 Nc6 4. Nd2 Nf6 5. Nxe4 Nxe4 6. Qd3 f5 7. Ng3 e5 8.
+Nxf5 Qd5 9. Be2 Bb4+ 10. c3 Bxc3+ 11. bxc3 Bxf5 12. dxe5 Qf7 13. O-O Rd8 14.
+Qe3 Qg6 15. Bd3 Rxd3 16. Qxd3 O-O 17. f4 Kh8 18. g3 a6 19. Rb1 Nc5 20. Qf3 Bxb1
+21. Be3 Ne6 22. Rxb1 Qxb1+ 1-0

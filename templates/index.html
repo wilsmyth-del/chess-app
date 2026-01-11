@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chess</title>
+
+    <link rel="stylesheet" href="/static/vendor/chessboard-1.0.0.min.css" />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    
+
+
+    <div class="page-header">
+      <h1>Chess</h1>
+      <button id="theme-toggle" aria-pressed="false">Dark Mode</button>
+      <div id="persona-indicator" class="persona-indicator">Persona: Student</div>
+    </div>
+
+    <div class="layout">
+          <div class="left-col">
+            <div class="board-wrap" style="position:relative">
+              <div class="board-top-controls">
+                <button id="play-engine-btn" class="ctrl small play-top">Start Game</button>
+              </div>
+              <div id="board-container">
+                <div id="board"></div>
+              </div>
+
+              <!-- Bottom controls: Export FEN and Download PGN (side-by-side under board) -->
+              <div class="board-bottom-controls">
+                <button id="export-fen-btn" class="ctrl small">Export FEN</button>
+                <button id="save-pgn-btn" class="ctrl small">Download PGN</button>
+              </div>
+
+              <!-- Small floating Tools button (links to full Tools page) -->
+              <a id="open-tools-btn" href="/test_personas" title="Tools" style="position:absolute;right:10px;bottom:10px;z-index:60;padding:8px 10px;border-radius:6px;background:var(--card-accent,#28a745);color:#fff;text-decoration:none;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.15)">Tools</a>
+            <div class="captured-trays">
+              <div class="captured-tray">
+                  <div id="tray-white" class="tray-items"></div>
+                  <!-- tray image only -->
+              </div>
+              <div class="captured-tray">
+                  <div id="tray-black" class="tray-items"></div>
+                  <!-- tray image only -->
+              </div>
+            </div>
+          </div>
+      </div>
+
+      <div class="right-col">
+        <div class="turn-area">
+            <div id="status" class="turn-status"></div>
+            <div id="result-indicator"></div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Modes">
+            <button class="tab-btn" data-tab="game" role="tab" aria-selected="true">Game</button>
+            <button class="tab-btn" data-tab="free" role="tab">Free Board</button>
+            <!-- Puzzles tab removed -->
+            <button class="tab-btn" data-tab="study" role="tab">Study</button>
+          </div>
+
+          <div class="tab-cards">
+            <div class="tab-card" id="card-game" data-tab="game">
+              <h3>Game</h3>
+              <p>Normal play: use controls to start/stop games, save PGN, and toggle engine play.</p>
+              <div style="margin-top:8px">
+                <button id="game-reset-btn" class="ctrl small">Reset</button>
+              </div>
+            </div>
+            <div class="tab-card" id="card-free" data-tab="free">
+              <h3>Free Board</h3>
+              <p>Drag pieces freely to create custom positions. Use the piece palette below the board.</p>
+              <div class="free-controls" style="margin-top:8px">
+                <label style="margin-left:8px">
+                  <input type="checkbox" id="free-board-toggle" /> Free Board
+                </label>
+                <button id="clear-board-btn" class="ctrl small" style="margin-left:8px">Clear Board</button>
+                <button id="reset-btn" class="ctrl small" style="margin-left:8px">Reset</button>
+                <label style="margin-left:8px">Start to move:
+                  <select id="start-to-move">
+                    <option value="white">White</option>
+                    <option value="black">Black</option>
+                  </select>
+                </label>
+                <button id="start-from-pos-btn" class="ctrl small" style="margin-left:8px">Start From Position</button>
+              </div>
+              <div id="piece-palette-placeholder" style="margin-top:8px"></div>
+            </div>
+            <!-- Puzzles card removed -->
+            <div class="tab-card" id="card-study" data-tab="study">
+              <h3>Study / Analysis</h3>
+              <p>Study tools and analysis appear here (coming soon).</p>
+              <div style="margin-top:8px">FEN: <span id="fen"></span></div>
+            </div>
+            <!-- Tools moved to dedicated /test_personas page; replaced by floating button on board -->
+          </div>
+
+            <div class="accordion">
+          <div class="accordion-item">
+            <button class="accordion-toggle">Controls</button>
+            <div class="accordion-content">
+              <label>Player color:
+                <select id="player-color">
+                  <option value="white">White (bottom)</option>
+                  <option value="black">Black (bottom)</option>
+                </select>
+              </label>
+              <!-- Player color chooser is above -->
+              <div style="margin-top:8px">
+                <label>Persona:
+                  <select id="engine-persona" title="Select a playing persona; affects engine strength and style">
+                    <option value="">(none)</option>
+                    <option value="Grasshopper">Grasshopper</option>
+                    <option value="Student" selected>Student</option>
+                    <option value="Adept">Adept</option>
+                    <option value="Ninja">Ninja</option>
+                    <option value="Sensei">Sensei</option>
+                  </select>
+                </label>
+                <div class="hint" style="margin-top:6px">Persona controls engine strength/style (e.g. Grasshopper = weaker, Sensei = stronger).</div>
+              </div>
+              <!-- Thinking speed selector removed: personas use an internal engine-time default -->
+              <div id="players-display" style="margin-top:8px; font-weight:600"></div>
+              <!-- Captured trays update controls removed; captured pieces update automatically during play -->
+                  <!-- Free Board controls moved into Free tab -->
+              <div class="hint" style="margin-top:8px">Tip: Use the Arrow keys to step through moves.</div>
+            </div>
+          </div>
+
+          <!-- Engine controls removed; persona and game start/stop handled from Controls -->
+
+          </div>
+          <!-- Move list removed per user request -->
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/vendor/jquery-3.6.0.min.js"></script>
+    <script src="/static/vendor/chessboard-1.0.0.min.js"></script>
+    <script src="/static/vendor/chess.min.js"></script>
+
+    <!-- Promotion modal (hidden by default) -->
+    <div id="promotion-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="promo-title">
+      <div class="modal-content">
+        <div id="promo-title">Choose promotion piece</div>
+        <div class="promo-buttons">
+          <button class="promo-btn" data-piece="q"><img class="promo-img" alt="Queen"/><span class="promo-label">Q</span></button>
+          <button class="promo-btn" data-piece="r"><img class="promo-img" alt="Rook"/><span class="promo-label">R</span></button>
+          <button class="promo-btn" data-piece="b"><img class="promo-img" alt="Bishop"/><span class="promo-label">B</span></button>
+          <button class="promo-btn" data-piece="n"><img class="promo-img" alt="Knight"/><span class="promo-label">N</span></button>
+        </div>
+        <button id="promo-cancel" class="promo-cancel">Cancel</button>
+      </div>
+    </div>
+
+    <!-- popout modal removed; move list is permanent below the right-side accordion -->
+
+    <script src="/static/main.js?v={{ main_js_version }}"></script>
+  </body>
+</html>

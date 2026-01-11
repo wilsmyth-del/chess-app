@@ -1,0 +1,15 @@
+[Event "Persona Simulation"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "student"]
+[Black "student"]
+[Result "*"]
+[WhitePersona "student"]
+[BlackPersona "student"]
+[Seed ""]
+[GameNumber "10"]
+[EngineTime "0.05"]
+[Termination "engine_failed"]
+
+*

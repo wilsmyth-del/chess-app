@@ -1,0 +1,16 @@
+[Event "Persona Simulation"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "student"]
+[Black "student"]
+[Result "*"]
+[WhitePersona "student"]
+[BlackPersona "student"]
+[Seed ""]
+[GameNumber "9"]
+[EngineTime "0.05"]
+[Termination "engine_failed"]
+
+1. a3 Nc6 2. Nf3 g6 3. h3 d5 4. b4 Nf6 5. c4 a5 6. Nc3 Nb8 7. e3 Bf5 8. Ra2
+axb4 9. Nb5 *

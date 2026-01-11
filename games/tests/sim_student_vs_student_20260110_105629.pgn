@@ -1,0 +1,21 @@
+[Event "Persona Simulation"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "student"]
+[Black "student"]
+[Result "0-1"]
+
+1. e4 c6 2. c3 g6 3. Be2 d6 4. d3 c5 5. f4 Bg7 6. Be3 a6 7. a4 Qc7 8. Bf3 Nc6
+9. Ne2 Nf6 10. Ng3 h5 11. O-O Bh6 12. Qe1 Bg4 13. Na3 Rd8 14. Bxg4 Nxg4 15. h3
+Nxe3 16. Qxe3 Rd7 17. Rae1 Qd8 18. Qf2 h4 19. Ne2 Bg7 20. Rd1 f5 21. exf5 e5
+22. Nc4 b5 23. axb5 Ne7 24. bxa6 O-O 25. fxe5 Bxe5 26. Qxh4 Qe8 27. Ng3 Rxf5
+28. Rde1 Qc8 29. Nb6 Qxa6 30. Nc4 Bf6 31. Qg4 Bxc3 32. bxc3 d5 33. Nd2 Qxd3 34.
+Nxf5 Nxf5 35. Qe2 Qxe2 36. Rxe2 c4 37. Rfe1 d4 38. g4 d3 39. Re5 Ng3 40. Nxc4
+Rd8 41. Re8+ Rxe8 42. Re3 Ne2+ 43. Kf1 Rxe3 44. Kf2 Re6 45. Nd2 Nxc3 46. Kf3
+Re7 47. Ne4 Nxe4 48. Kf4 Nc3 49. h4 Kh7 50. Kg5 Rf7 51. h5 Ra7 52. Kf4 Kh6 53.
+Ke3 Nb5 54. Ke4 Re7+ 55. Kf3 Nc3 56. Kg3 g5 57. Kf3 Nd5 58. Kg2 Nf4+ 59. Kf3
+Kh7 60. Kg3 Nxh5+ 61. Kh3 Ng7 62. Kg3 Re8 63. Kf3 Kg6 64. Kg3 Rf8 65. Kh2 Ra8
+66. Kh1 Rb8 67. Kh2 Rd8 68. Kg1 d2 69. Kh1 Re8 70. Kg2 Re1 71. Kf2 Rc1 72. Kg3
+Ne6 73. Kf3 Rf1+ 74. Kg3 Kf7 75. Kg2 Ra1 76. Kh3 Kf6 77. Kg3 d1=Q 78. Kf2 Qg1+
+79. Ke2 Qf1+ 80. Ke3 Qc1+ 81. Kf2 Ra2+ 82. Kg3 Qe3# 0-1

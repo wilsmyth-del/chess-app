@@ -1,0 +1,437 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tools</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    label { display:block; margin-top:10px }
+    textarea { width:100%; height:200px; }
+    #status { margin-top:8px }
+    #copy_pgn, #open_notepad { margin-right:8px }
+    /* Toast style */
+    #toast { position:fixed; right:16px; bottom:18px; background: #222; color:#fff; padding:8px 12px; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.25); display:none; z-index:9999 }
+    #toast.success { background: #2b8a3e }
+    #toast.error { background: #c64242 }
+  </style>
+</head>
+<body>
+  <h1>Tools</h1>
+  <div style="display:flex;gap:18px;flex-wrap:wrap">
+    <div style="flex:1;min-width:360px">
+      <h2>Tools</h2>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <h4>Persona Tuning</h4>
+          <label>Persona:
+            <select id="persona_select_tune">
+              <option value="grasshopper">Grasshopper</option>
+              <option value="student">Student</option>
+              <option value="adept">Adept</option>
+              <option value="ninja">Ninja</option>
+              <option value="sensei">Sensei</option>
+            </select>
+          </label>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+            <label>Depth <input id="tune_depth" type="number" min="1" style="width:80px"></label>
+            <label>MultiPV <input id="tune_multipv" type="number" min="1" value="10" style="width:80px"></label>
+            <label>Temp <input id="tune_temp" type="number" step="0.1" style="width:80px"></label>
+          </div>
+          <fieldset style="margin-top:8px;border:1px solid rgba(0,0,0,0.06);padding:8px;border-radius:6px">
+            <legend>Mercy</legend>
+            <label>mate_in <input id="tune_mercy_mate_in" type="number" style="width:80px"></label>
+            <label>mate_keep_prob <input id="tune_mercy_mate_keep" type="number" step="0.01" style="width:80px"></label>
+            <label>eval_gap_threshold <input id="tune_mercy_gap" type="number" style="width:100px"></label>
+            <label>eval_keep_prob <input id="tune_mercy_keep" type="number" step="0.01" style="width:80px"></label>
+          </fieldset>
+          <div style="margin-top:8px; display:flex; gap:8px; align-items:center">
+            <label>Endgame pieces threshold <input id="tune_endgame_pieces" type="number" style="width:80px"></label>
+            <label>Endgame depth delta <input id="tune_endgame_depth" type="number" style="width:80px"></label>
+            <label>Endgame temp delta <input id="tune_endgame_temp" type="number" step="0.1" style="width:80px"></label>
+          </div>
+          <div style="margin-top:8px">
+            <button id="tune_save_btn" class="ctrl small">Save Persona</button>
+            <button id="tune_reset_btn" class="ctrl small" style="margin-left:8px">Reset To Defaults</button>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+            <button id="export_overrides" class="ctrl small">Export Overrides</button>
+            <button id="open_import_modal" class="ctrl small">Import Overrides</button>
+            <button id="reset_all_overrides" class="ctrl small" style="margin-left:8px;background:#c64242;color:#fff">Reset All</button>
+          </div>
+        </div>
+
+        <div>
+          <h4>Engine Knobs</h4>
+          <div id="engine_info">Detecting engine...</div>
+          <div style="margin-top:8px">
+            <label>Default engine time <input id="engine_default_time" type="number" step="0.01" style="width:80px"></label>
+            <label style="margin-left:8px">MultiPV cap <input id="engine_multipv_cap" type="number" value="10" style="width:80px"></label>
+          </div>
+        </div>
+
+        <div>
+          <h4>Logging / Debugging</h4>
+          <label><input id="debug_mode" type="checkbox"> Debug mode ON</label>
+          <div style="margin-top:8px"><button id="show_last_engine" class="ctrl small">Show Last 50 Engine Decisions</button></div>
+          <pre id="debug_output" style="height:160px;overflow:auto;margin-top:8px;background:var(--card);padding:8px;border-radius:6px"></pre>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:360px">
+      <h2>Simulator</h2>
+      <div class="sim-form">
+    <label>White persona
+      <select id="white_persona">
+        <option value="grasshopper">Grasshopper</option>
+        <option value="dandelion">Dandelion</option>
+        <option value="student">Student</option>
+        <option value="adept">Adept</option>
+        <option value="ninja">Ninja</option>
+        <option value="sensei">Sensei</option>
+      </select>
+    </label>
+    <label>Black persona
+      <select id="black_persona">
+        <option value="grasshopper">Grasshopper</option>
+        <option value="dandelion">Dandelion</option>
+        <option value="student">Student</option>
+        <option value="adept">Adept</option>
+        <option value="ninja">Ninja</option>
+        <option value="sensei">Sensei</option>
+      </select>
+    </label>
+    <label>Engine time (seconds)
+      <input id="engine_time" type="number" value="0.05" step="0.01">
+    </label>
+    <label>Max moves
+      <input id="max_moves" type="number" value="200">
+    </label>
+    <label>Batch count
+      <input id="batch_count" type="number" value="1" min="1" style="width:100px">
+    </label>
+    <label>RNG seed (optional)
+      <input id="rng_seed" type="text" placeholder="leave blank for stochastic">
+    </label>
+    <button id="start">Start Simulation</button>
+    <button id="run_batch" style="margin-left:8px" class="ctrl small">Run Batch</button>
+    <div style="margin-top:10px">
+      <div id="status" style="margin-top:6px;font-style:italic;color:#333"></div>
+      <div style="margin-top:6px">Saved PGN: <span id="saved_file" style="font-weight:600;color:var(--card-accent,#28a745)"></span>
+        <button id="open_notepad" disabled style="margin-left:12px" class="ctrl small">Open PGN in Notepad</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import modal (file upload or paste JSON) -->
+  <div id="import_modal" class="modal hidden" style="position:fixed;left:0;top:0;right:0;bottom:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);z-index:200">
+    <div style="background:var(--card);padding:16px;border-radius:8px;max-width:720px;width:90%;box-shadow:0 6px 24px rgba(0,0,0,0.25);">
+      <h3 style="margin-top:0">Import Persona Overrides</h3>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button id="import_mode_file" class="ctrl small">Upload File</button>
+        <button id="import_mode_paste" class="ctrl small">Paste JSON</button>
+        <div style="flex:1"></div>
+        <button id="import_cancel" class="ctrl small">Cancel</button>
+      </div>
+      <div id="import_area_file" style="display:block;margin-top:6px">
+        <input id="import_file_input" type="file" accept="application/json" />
+        <div style="margin-top:8px;color:var(--muted,#666);font-size:13px">Select a JSON file containing the persona_overrides object.</div>
+      </div>
+      <div id="import_area_paste" style="display:none;margin-top:6px">
+        <textarea id="import_paste_text" placeholder='Paste JSON here (object of persona overrides)'></textarea>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end">
+        <button id="import_submit" class="ctrl small">Import</button>
+      </div>
+      <div id="import_status" style="margin-top:8px;color:#c00;font-size:13px"></div>
+    </div>
+  </div>
+    <div id="toast" aria-live="polite"></div>
+    </div>
+  </div>
+
+  
+
+  <script>
+    // Apply saved or preferred theme so this page matches the main app
+    (function(){
+      try{
+        var saved = localStorage.getItem('theme');
+        var theme = (saved === 'dark' || saved === 'light') ? saved : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+      }catch(e){ /* ignore */ }
+    })();
+
+    async function postJson(url, data){
+      const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+      return r.json();
+    }
+    async function getJson(url){
+      const r = await fetch(url, {method:'GET'});
+      return r.json();
+    }
+    let last_pgn = null;
+    document.getElementById('start').addEventListener('click', async ()=>{
+      const white = document.getElementById('white_persona').value;
+      const black = document.getElementById('black_persona').value;
+      const engine_time = parseFloat(document.getElementById('engine_time').value) || 0.05;
+      const max_moves = parseInt(document.getElementById('max_moves').value) || 200;
+      const rng_seed_raw = document.getElementById('rng_seed').value;
+      const payload = {white_persona: white, black_persona: black, engine_time: engine_time, max_moves: max_moves};
+      if(rng_seed_raw !== '') payload.rng_seed = isNaN(parseInt(rng_seed_raw)) ? rng_seed_raw : parseInt(rng_seed_raw);
+      document.getElementById('status').textContent = 'Running...';
+      document.getElementById('saved_file').textContent = '';
+      document.getElementById('open_notepad').disabled = true;
+      last_pgn = null;
+      try{
+        const out = await postJson('/api/simulate', payload);
+        if(!out.ok){
+          document.getElementById('status').textContent = 'Error: ' + (out.error || JSON.stringify(out));
+          return;
+        }
+        document.getElementById('status').textContent = 'Done: ' + (out.result || '*') + ' (' + out.reason + ')';
+        last_pgn = out.pgn || null;
+        const saved = out.saved_file;
+        const openBtn = document.getElementById('open_notepad');
+        const savedSpan = document.getElementById('saved_file');
+        if(saved){
+          savedSpan.textContent = saved;
+          openBtn.disabled = false;
+          openBtn.onclick = async ()=>{
+            try{
+              const r = await postJson('/api/open_pgn_notepad', {filename: saved});
+              if(!r.ok) showToast('Open failed: ' + (r.error||JSON.stringify(r)), 'error');
+            }catch(e){ showToast('Request failed: '+e, 'error'); }
+          };
+        }else{
+          savedSpan.textContent = '';
+          openBtn.disabled = true;
+        }
+      }catch(e){
+        document.getElementById('status').textContent = 'Request failed: ' + e;
+      }
+    });
+
+    // Populate fields with what's currently in use
+    async function initPage(){
+      try{
+        // Load engine info
+        const einfo = await getJson('/api/engine_info');
+        if(einfo && einfo.ok && einfo.engine){
+          const eng = einfo.engine;
+          const det = document.getElementById('engine_info');
+          if(det) det.textContent = (eng.engine_detected ? eng.engine_path : 'No engine detected');
+          const edt = document.getElementById('engine_default_time');
+          if(edt && eng.default_engine_time!==undefined) edt.value = eng.default_engine_time;
+          const emc = document.getElementById('engine_multipv_cap');
+          if(emc && eng.multipv_cap!==undefined) emc.value = eng.multipv_cap;
+          const et = document.getElementById('engine_time');
+          if(et && eng.default_engine_time!==undefined) et.value = eng.default_engine_time;
+        }
+
+        // Load persona list and populate selects
+        const plist = await getJson('/api/personas');
+        let defaultPersona = 'student';
+        if(plist && plist.ok && plist.personas){
+          const names = Object.keys(plist.personas);
+          // Populate persona select fields
+          const tuneSel = document.getElementById('persona_select_tune');
+          const whiteSel = document.getElementById('white_persona');
+          const blackSel = document.getElementById('black_persona');
+          if(tuneSel){
+            tuneSel.innerHTML = '';
+            names.forEach(n=>{
+              const opt = document.createElement('option'); opt.value = n; opt.textContent = n; tuneSel.appendChild(opt);
+            });
+          }
+          if(whiteSel){
+            whiteSel.innerHTML = '';
+            names.forEach(n=>{ const opt = document.createElement('option'); opt.value = n; opt.textContent = n; whiteSel.appendChild(opt); });
+          }
+          if(blackSel){
+            blackSel.innerHTML = '';
+            names.forEach(n=>{ const opt = document.createElement('option'); opt.value = n; opt.textContent = n; blackSel.appendChild(opt); });
+          }
+          // pick sensible default
+          if(names.indexOf('student')!==-1) defaultPersona='student';
+          else if(names.length) defaultPersona = names[0];
+        }
+
+        // Set selected persona values
+        try{ if(document.getElementById('persona_select_tune')) document.getElementById('persona_select_tune').value = defaultPersona; }catch(e){}
+        try{ if(document.getElementById('white_persona')) document.getElementById('white_persona').value = defaultPersona; }catch(e){}
+        try{ if(document.getElementById('black_persona')) document.getElementById('black_persona').value = defaultPersona; }catch(e){}
+
+        // Load persona config into tuning fields
+        await loadPersonaConfig(defaultPersona);
+      }catch(e){ console.warn('initPage failed', e); }
+    }
+
+    async function loadPersonaConfig(name){
+      if(!name) return;
+      try{
+        const r = await getJson('/api/persona/'+encodeURIComponent(name));
+        if(!r || !r.ok || !r.config) return;
+        const cfg = r.config || {};
+        const setVal = (id, v)=>{ const el=document.getElementById(id); if(!el) return; el.value = (v===undefined || v===null)? '' : v; };
+        setVal('tune_depth', cfg.depth);
+        setVal('tune_multipv', cfg.multipv);
+        setVal('tune_temp', cfg.pick_temperature || cfg.temperature || '');
+        const mercy = cfg.mercy || {};
+        setVal('tune_mercy_mate_in', mercy.mate_in);
+        setVal('tune_mercy_mate_keep', mercy.mate_keep_prob);
+        setVal('tune_mercy_gap', mercy.eval_gap_threshold);
+        setVal('tune_mercy_keep', mercy.eval_keep_prob);
+        const eg = cfg.endgame || {};
+        setVal('tune_endgame_pieces', eg.pieces_threshold || cfg.endgame_pieces_threshold);
+        setVal('tune_endgame_depth', eg.depth_delta || cfg.endgame_depth_delta);
+        setVal('tune_endgame_temp', eg.temp_delta || cfg.endgame_temp_delta);
+      }catch(e){ console.warn('loadPersonaConfig failed', e); }
+    }
+
+    // Wire persona tuning selector change
+    const pst = document.getElementById('persona_select_tune');
+    if(pst) pst.addEventListener('change', (e)=> loadPersonaConfig(e.target.value));
+
+    // Initialize on load
+    initPage();
+
+    // Export overrides to a downloadable JSON file
+    document.getElementById('export_overrides').addEventListener('click', async ()=>{
+      try{
+        const r = await getJson('/api/personas/export');
+        if(!r || !r.ok){ showToast('Export failed: ' + (r && r.error), 'error'); return; }
+        const data = r.overrides || {};
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'persona_overrides.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showToast('Export ready — downloaded', 'success');
+      }catch(e){ alert('Export failed: '+e); }
+    });
+
+    // Import modal wiring
+    const importModal = document.getElementById('import_modal');
+    const importAreaFile = document.getElementById('import_area_file');
+    const importAreaPaste = document.getElementById('import_area_paste');
+    document.getElementById('open_import_modal').addEventListener('click', ()=>{
+      importModal.style.display = 'flex';
+      document.getElementById('import_status').textContent = '';
+      // default to file mode
+      importAreaFile.style.display = 'block'; importAreaPaste.style.display = 'none';
+    });
+    document.getElementById('import_cancel').addEventListener('click', ()=>{ importModal.style.display = 'none'; });
+    document.getElementById('import_mode_file').addEventListener('click', ()=>{ importAreaFile.style.display='block'; importAreaPaste.style.display='none'; });
+    document.getElementById('import_mode_paste').addEventListener('click', ()=>{ importAreaFile.style.display='none'; importAreaPaste.style.display='block'; });
+
+    async function doImportObject(obj){
+      try{
+        const res = await postJson('/api/personas/import', {overrides: obj});
+        if(!res || !res.ok){ document.getElementById('import_status').textContent = 'Import failed: ' + (res && res.error || 'unknown'); return; }
+        document.getElementById('import_status').textContent = 'Import succeeded.';
+        showToast('Import succeeded', 'success');
+        setTimeout(()=>{ importModal.style.display='none'; initPage(); }, 600);
+      }catch(e){ document.getElementById('import_status').textContent = 'Import error: '+e; }
+    }
+
+    document.getElementById('import_submit').addEventListener('click', async ()=>{
+      document.getElementById('import_status').textContent = '';
+      // file mode
+      if(importAreaFile.style.display !== 'none'){
+        const fi = document.getElementById('import_file_input');
+        if(!fi || !fi.files || fi.files.length === 0){ document.getElementById('import_status').textContent = 'No file selected'; return; }
+        const file = fi.files[0];
+        try{
+          const text = await file.text();
+          const obj = JSON.parse(text);
+          // if payload is wrapped, handle both
+          const payload = (obj && obj.overrides && typeof obj.overrides === 'object') ? obj.overrides : obj;
+          await doImportObject(payload);
+        }catch(e){ document.getElementById('import_status').textContent = 'File parse error: '+e; }
+        return;
+      }
+      // paste mode
+      if(importAreaPaste.style.display !== 'none'){
+        const txt = document.getElementById('import_paste_text').value;
+        if(!txt || !txt.trim()){ document.getElementById('import_status').textContent = 'Paste area is empty'; return; }
+        try{
+          const obj = JSON.parse(txt);
+          const payload = (obj && obj.overrides && typeof obj.overrides === 'object') ? obj.overrides : obj;
+          await doImportObject(payload);
+        }catch(e){ document.getElementById('import_status').textContent = 'JSON parse error: '+e; }
+      }
+    });
+
+    // Reset all overrides
+    document.getElementById('reset_all_overrides').addEventListener('click', async ()=>{
+      if(!confirm('Reset all persona overrides to defaults? This cannot be undone.')) return;
+      try{
+        const r = await postJson('/api/personas/reset_all', {});
+        if(!r || !r.ok){ showToast('Reset failed: '+(r && r.error), 'error'); return; }
+        showToast('Overrides reset', 'success');
+        initPage();
+      }catch(e){ showToast('Reset failed: '+e, 'error'); }
+    });
+
+    // Run batch simulation (server-side)
+    document.getElementById('run_batch').addEventListener('click', async ()=>{
+      const white = document.getElementById('white_persona').value;
+      const black = document.getElementById('black_persona').value;
+      const engine_time = parseFloat(document.getElementById('engine_time').value) || 0.05;
+      const max_moves = parseInt(document.getElementById('max_moves').value) || 200;
+      const count = parseInt(document.getElementById('batch_count').value) || 1;
+      const payload = {white_persona: white, black_persona: black, engine_time: engine_time, count: count, max_moves: max_moves};
+      document.getElementById('status').textContent = 'Running batch...';
+      try{
+        const res = await postJson('/api/simulate_batch', payload);
+        if(!res || !res.ok){ showToast('Batch failed: ' + (res && res.error), 'error'); document.getElementById('status').textContent = 'Batch failed'; return; }
+        // Show links for combined PGN and CSV if present
+        const linksAreaId = 'batch_links_area';
+        let linksArea = document.getElementById(linksAreaId);
+        if(!linksArea){
+          linksArea = document.createElement('div'); linksArea.id = linksAreaId; linksArea.style.marginTop='8px';
+          document.querySelector('.sim-form').appendChild(linksArea);
+        }
+        linksArea.innerHTML = '';
+        if(res.batch_pgn){
+          const a = document.createElement('a');
+          a.href = '/api/download_pgn?filename='+encodeURIComponent(res.batch_pgn);
+          a.textContent = 'Download combined PGN ('+res.batch_pgn+')';
+          a.style.display='inline-block'; a.style.marginRight='12px';
+          linksArea.appendChild(a);
+        }
+        if(res.csv){
+          const c = document.createElement('a');
+          c.href = '/api/download_pgn?filename='+encodeURIComponent(res.csv);
+          c.textContent = 'Download CSV ('+res.csv+')';
+          c.style.display='inline-block';
+          linksArea.appendChild(c);
+        }
+        showToast('Batch complete: ' + (res.count||0) + ' saved', 'success');
+        document.getElementById('status').textContent = 'Batch complete';
+      }catch(e){ showToast('Batch failed: '+e, 'error'); document.getElementById('status').textContent = 'Batch failed'; }
+    });
+
+    // Toast helper
+    function showToast(msg, type){
+      try{
+        const t = document.getElementById('toast');
+        if(!t) return;
+        t.textContent = msg;
+        t.className = '';
+        if(type === 'success') t.classList.add('success');
+        else if(type === 'error') t.classList.add('error');
+        t.style.display = 'block';
+        clearTimeout(t._hideTimer);
+        t._hideTimer = setTimeout(()=>{ t.style.display='none'; t.className=''; }, 3500);
+      }catch(e){ /* ignore */ }
+    }
+  </script>
+</body>
+</html>

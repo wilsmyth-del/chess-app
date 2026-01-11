@@ -1,0 +1,22 @@
+[Event "Persona Simulation"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "student"]
+[Black "student"]
+[Result "0-1"]
+[WhitePersona "student"]
+[BlackPersona "student"]
+[Seed ""]
+[GameNumber "2"]
+[EngineTime "0.05"]
+[Termination "game_over"]
+
+1. c4 c6 2. Nc3 c5 3. f4 d6 4. h3 b6 5. e3 Bb7 6. d3 e6 7. e4 Be7 8. Qe2 Bf6 9.
+Bd2 Nc6 10. Kd1 b5 11. Qe3 b4 12. Nd5 Bxb2 13. h4 Bd4 14. Qg3 a5 15. Rb1 Ba6
+16. Nf3 Kd7 17. Nxd4 cxd4 18. Nb6+ Qxb6 19. c5 dxc5 20. a4 h6 21. h5 Rd8 22.
+Ke1 b3 23. Qf2 Nge7 24. Qg3 f6 25. Rh3 Rb8 26. Qh4 Kd8 27. Be2 Qb7 28. Rg3 Rh7
+29. Rg6 b2 30. Rxg7 Rxg7 31. g3 Qc7 32. Qxf6 Rg5 33. Qf7 Rg8 34. Bf1 e5 35. Qh7
+Nb4 36. fxe5 Rf8 37. Qg7 Rg8 38. Qf7 Nxd3+ 39. Bxd3 Bxd3 40. Bf4 Rb6 41. Kf2
+Qc6 42. Rh1 Bxe4 43. Rd1 Rh8 44. Qg7 Qe8 45. Rxd4+ cxd4 46. Bd2 Kc7 47. Bc1
+bxc1=Q 48. Qg5 Rb2+ 49. Qd2 Qxh5 50. Qc2+ Qxc2+ 51. Kf1 Qhd1# 0-1

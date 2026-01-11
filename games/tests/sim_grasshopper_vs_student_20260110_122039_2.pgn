@@ -1,0 +1,30 @@
+[Event "Persona Simulation"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "grasshopper"]
+[Black "student"]
+[Result "*"]
+[WhitePersona "grasshopper"]
+[BlackPersona "student"]
+[Seed ""]
+[GameNumber "2"]
+[EngineTime "0.01"]
+[Termination "max_moves_reached"]
+
+1. Nf3 e6 2. g3 Nf6 3. c4 Nc6 4. d4 b6 5. Bf4 g6 6. Nc3 Bb7 7. Rc1 Nh5 8. Be3
+Nf6 9. Bg5 Nb8 10. a3 h6 11. Bf4 Ng4 12. d5 a5 13. Qd4 Rg8 14. Qd1 Na6 15. Ne5
+Nxe5 16. Bxe5 Be7 17. h4 d6 18. Bd4 Nc5 19. Rh2 h5 20. e4 a4 21. Rh1 Qd7 22.
+Bh3 Kd8 23. Bxc5 Bxh4 24. Bb4 Qe7 25. Rc2 Bg5 26. Re2 f5 27. e5 c5 28. Bxc5
+bxc5 29. Bg2 Qg7 30. Rh3 Ra5 31. Nxa4 Rf8 32. Bh1 Ke8 33. f4 Bh6 34. Nc3 Ba8
+35. Qc2 Ra7 36. Qb3 Qc7 37. Qb5+ Kf7 38. g4 fxg4 39. dxe6+ Kg7 40. Bxa8 gxh3
+41. Nd5 Qb8 42. Qxb8 Rxa3 43. bxa3 Rxb8 44. Kd2 dxe5 45. Nc7 Rxa8 46. Rf2 Bxf4+
+47. Ke1 Rc8 48. Rxf4 Kh6 49. Ke2 exf4 50. Kf3 Rg8 51. Kf2 Kg5 52. Na6 Rc8 53.
+Nc7 Rxc7 54. Kf1 h4 55. e7 Rd7 56. e8=Q Rd1+ 57. Kf2 Rh1 58. Qe6 Rh2+ 59. Ke1
+Rb2 60. Qd5+ Kf6 61. Qa8 Kg5 62. Qg8 Rb1+ 63. Kf2 Rb2+ 64. Ke1 Rh2 65. Qc8 f3
+66. Qd7 Re2+ 67. Kf1 Re1+ 68. Kf2 Re4 69. Qd6 Kh6 70. Qd3 h2 71. Qxf3 Re8 72.
+a4 h1=B 73. Qh3 Bb7 74. Kg1 Be4 75. Qxh4+ Kg7 76. Qe1 Kg8 77. Qa5 Rc8 78. Qb5
+Bf5 79. Qb6 Bg4 80. Kg2 Kg7 81. Kf2 Bd7 82. Qb7 Re8 83. Qb2+ Kh6 84. Qa2 Kg7
+85. Qa3 Kh8 86. Kf3 Bc6+ 87. Kg4 Re6 88. Kg3 Re2 89. Qa1+ Kg8 90. Kh3 Ba8 91.
+Qa3 Bg2+ 92. Kg4 Bf1 93. a5 Re4+ 94. Kf3 Rxc4 95. a6 Rc2 96. a7 Kg7 97. Kg3
+Rg2+ 98. Kf3 Rg5 99. Qa2 Ba6 100. Qa1+ Kh6 *

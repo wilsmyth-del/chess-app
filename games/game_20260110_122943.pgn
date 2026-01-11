@@ -1,0 +1,15 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.10"]
+[Round "?"]
+[White "Player"]
+[Black "Grasshopper"]
+[Result "1-0"]
+
+1. d4 e6 2. Bf4 g5 3. Bg3 Bg7 4. Nf3 h6 5. e3 d6 6. Nbd2 Nc6 7. a3 Qe7 8. Bb5
+f5 9. O-O e5 10. dxe5 Kf8 11. exd6 Qe8 12. Ne5 a6 13. d7 Qe7 14. dxc8=R+ Qd8
+15. Rxd8+ Nxd8 16. Bc4 Ke8 17. Ng6 Rh7 18. Be5 f4 19. Bxg7 Nc6 20. g3 Nge7 21.
+Be5 Rh8 22. gxf4 gxf4 23. Bxf4 Nxg6 24. Bg3 Nge5 25. Bxe5 Nxe5 26. Bd5 h5 27.
+Bxb7 Rb8 28. Bxa6 Rxb2 29. f4 Rg8+ 30. Kf2 Ng4+ 31. Kf3 Rb4 32. axb4 Ke7 33.
+Bc4 h4 34. Bxg8 Ne5+ 35. fxe5 Kd7 36. Ra7 h3 37. Kg3 Kc6 38. Kxh3 Kb5 39. c3
+Kb6 40. Ra1 Kc6 41. Qa4+ Kb6 42. Qa6# 1-0

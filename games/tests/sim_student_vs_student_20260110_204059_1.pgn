@@ -1,0 +1,17 @@
+[Event "Persona Simulation"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "student"]
+[Black "student"]
+[Result "0-1"]
+[WhitePersona "student"]
+[BlackPersona "student"]
+[Seed ""]
+[GameNumber "1"]
+[EngineTime "0.05"]
+[Termination "game_over"]
+
+1. g3 d6 2. Bh3 e5 3. Bf1 d5 4. e3 Nc6 5. Bg2 Be6 6. d3 h5 7. h4 Qd7 8. Nd2 a5
+9. b3 Nh6 10. Rb1 Bg4 11. Ndf3 Be7 12. c3 O-O-O 13. Qd2 Rhe8 14. a3 b6 15. Nh3
+Kb8 16. c4 dxc4 17. bxc4 Qxd3 18. Nd4 Qxd2+ 19. Kf1 Qd1# 0-1

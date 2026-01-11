@@ -1,0 +1,12 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.10"]
+[Round "?"]
+[White "Player"]
+[Black "Student"]
+[Result "0-1"]
+
+1. d4 a6 2. c4 c6 3. Nf3 g6 4. Bf4 Bg7 5. e3 Nh6 6. h3 a5 7. c5 Na6 8. Bd3 Ng8
+9. Nbd2 Ra7 10. O-O Nf6 11. b3 b6 12. a4 h6 13. b4 Nh5 14. Bg5 Qc7 15. b5 d5
+16. bxa6 bxc5 17. dxc5 hxg5 18. g4 Nf6 19. h4 Rxa6 20. h5 Ra8 21. hxg6 Rh6 22.
+gxf7+ Kd8 23. f8=R+ Ne8 24. Rxe8+ Kd7 25. Rxc8 Rxc8 26. Nxg5 Qh2# 0-1
