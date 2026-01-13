@@ -1,5 +1,36 @@
 # CHANGELOG — Chess (2026-01-01)
 
+## 2026-01-11 — Stability, persona defaults, and UI hardening
+
+- Normalized persona MultiPV defaults to 10 across persona profiles and server callers; MultiPV behavior is now consistent unless explicitly overridden by a persona.
+- Added persona `curve` weighting helpers and sampling integration to support soft move-distributions for richer, tunable play.
+- Performance: skip unnecessary MultiPV work for deterministic personas (temperature <= 0) to avoid extra engine load.
+- Client stability improvements: introduced an `engineBusy` guard to prevent concurrent engine requests and to disable engine controls while work is pending.
+- Free Board hardened as a pure editor: editing mode now blocks engine/move requests and offers a `Start From Position` action to begin play from the edited FEN.
+- Game termination flow reworked: terminal results (mate/draw/resign) now stop play, mark the game over, and auto-save PGN once without resetting the final board position or clearing history.
+- Minor UI polish: Tools launcher opens the simulator in a new tab; promotion/modal, promotion guards, and captured-trays updated for consistency.
+
+## 2026-01-12 — Lifecycle fixes, presets, UI state machine, and dev tooling
+
+- Fixed lifecycle leakage on reset so finished games no longer persist a previous termination state; `ChessGame.reset()` now clears `status`, `end_reason`, `result`, `pgn_final`, and `ended_at`.
+- Introduced canonical opponent presets (`BOT_PRESETS`) and mapped the client-side `opponent_preset` into server-side defaults for `engine_persona`, `engine_skill`, and `engine_time` when explicit values are not provided.
+- Added a light-weight dev API for tuning and inspection (dev-only endpoints for presets and game status), gated so they are disabled in V1 mode and when Flask debug is not enabled.
+- Reworked client UI into a three-state flow (SETUP → IN_GAME → RESULT), moved PGN download to the canonical server-returned PGN, and updated client logic to call `/api/reset` when starting a new game.
+- Added a minimal debug panel injected only in Flask debug mode and styled it to be readable in dark themes.
+- Fixed several front-end runtime errors (stray syntax token and null DOM refs) and added defensive guards (`engineBusy`, `moveInFlight`) to prevent concurrent engine requests.
+- Implemented an API-side fallback for engine replies: if `engine_move()` returned `None` but a move was pushed to the board, recover the last pushed UCI from `game.board.move_stack[-1].uci()` so the client receives the engine move and canonical PGN.
+
+Files changed:
+- `app/chess_core.py` — added `BOT_PRESETS`, cleared lifecycle fields in `reset()`.
+- `app/api.py` — mapped `opponent_preset` to engine defaults, added dev endpoints (`/api/dev/presets`, `/api/dev/game_status`), and implemented the engine-reply fallback.
+- `templates/index.html` — injected `window.DEBUG_MODE`/`window.V1_MODE`, reworked panels, added debug panel markup.
+- `static/main.js` — implemented the SETUP/IN_GAME/RESULT state machine, fixed JS syntax/DOM issues, and added client-side guards and PGN download flow.
+- `static/style.css` — debug panel styling (forced high-contrast light palette for readability in dark mode).
+- `server.py` — pass debug flag to templates and respect `DEBUG`/`FLASK_DEBUG` env vars when running.
+
+How to verify:
+- Restart the Flask server (use debug mode if you want the dev panel), play until a mate/draw/resign and confirm the RESULT panel shows the correct `engine_reply` and canonical PGN.
+
 ## 2026-01-10 — Persona core, Tools UI, and batch simulation
 
 - Implemented richer engine persona core: explicit `engine_persona` and `engine_skill`, MultiPV sampling, mercy rules, blunder budgets, and phase-aware softness for endgame tuning.

@@ -29,7 +29,7 @@ def is_persona_allowed(name):
 # Centralized default persona definitions (used for UI tuning + runtime)
 DEFAULT_PERSONAS = {
     'grasshopper': {
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 750, 'Skill Level': 0, 'MultiPV': 10},
+        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 450, 'Skill Level': 0, 'MultiPV': 10},
         'depth': 4,
         'pick_temperature': 2.5,
         'multipv': 10,
@@ -37,9 +37,13 @@ DEFAULT_PERSONAS = {
         'endgame_depth_delta': -2,
         'endgame_temp_delta': 0.3,
         'pieces_threshold': 10,
+        'curve': {
+            'type': 'table',
+            'weights': [1, 2, 6, 10, 14, 14, 10, 6, 4, 3]
+        },
     },
     'student': {
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 980, 'Skill Level': 2, 'MultiPV': 10},
+        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 750, 'Skill Level': 2, 'MultiPV': 10},
         'depth': 6,
         'pick_temperature': 1.6,
         'multipv': 10,
@@ -47,6 +51,10 @@ DEFAULT_PERSONAS = {
         'endgame_depth_delta': -2,
         'endgame_temp_delta': 0.3,
         'pieces_threshold': 10,
+        'curve': {
+            'type': 'table',
+            'weights': [8, 10, 10, 8, 6, 4, 2, 1, 1, 1]
+        },
     },
     'adept': {
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1175, 'Skill Level': 5, 'MultiPV': 10},
@@ -57,6 +65,10 @@ DEFAULT_PERSONAS = {
         'endgame_depth_delta': -1,
         'endgame_temp_delta': 0.3,
         'pieces_threshold': 10,
+        'curve': {
+            'type': 'table',
+            'weights': [16, 14, 10, 6, 4, 2, 1, 1, 1, 1]
+        },
     },
     'ninja': {
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1450, 'Skill Level': 8, 'MultiPV': 10},
@@ -67,6 +79,10 @@ DEFAULT_PERSONAS = {
         'endgame_depth_delta': -1,
         'endgame_temp_delta': 0.3,
         'pieces_threshold': 10,
+        'curve': {
+            'type': 'table',
+            'weights': [28, 20, 12, 6, 3, 1, 1, 1, 1, 1]
+        },
     },
     'sensei': {
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1700, 'Skill Level': 12, 'MultiPV': 10},
@@ -77,6 +93,10 @@ DEFAULT_PERSONAS = {
         'endgame_depth_delta': -1,
         'endgame_temp_delta': 0.0,
         'pieces_threshold': 10,
+        'curve': {
+            'type': 'table',
+            'weights': [64, 16, 4, 1, 1, 1, 1, 1, 1, 1]
+        },
     },
 }
 
@@ -290,6 +310,36 @@ def validate_persona_override(name: str, data: dict):
                 float(eg['temp_delta'])
             except Exception:
                 return False, 'endgame.temp_delta must be a number'
+    # curve (optional): allow persona move-selection curves
+    if 'curve' in data and data['curve'] is not None:
+        if not isinstance(data['curve'], dict):
+            return False, 'curve must be an object or null'
+        cur = data['curve']
+        # type must be 'table' or 'power'
+        if 'type' not in cur or not isinstance(cur['type'], str):
+            return False, 'curve.type must be a string'
+        if cur['type'] not in ('table', 'power'):
+            return False, "curve.type must be 'table' or 'power'"
+        if cur['type'] == 'table':
+            if 'weights' not in cur:
+                return False, 'curve.weights must be provided for table type'
+            if not isinstance(cur['weights'], (list, tuple)):
+                return False, 'curve.weights must be a list'
+            if len(cur['weights']) < 1:
+                return False, 'curve.weights must contain at least one number'
+            for i, w in enumerate(cur['weights']):
+                try:
+                    float(w)
+                except Exception:
+                    return False, f'curve.weights[{i}] must be a number'
+        else:
+            # power
+            if 'alpha' not in cur:
+                return False, 'curve.alpha must be provided for power type'
+            try:
+                float(cur['alpha'])
+            except Exception:
+                return False, 'curve.alpha must be a number'
     return True, None
 
 
@@ -394,6 +444,79 @@ def get_rng():
     return _RNG
 
 
+def normalize_weights(ws):
+    """Normalize an iterable of weights to sum to 1. Returns a list of floats.
+
+    - Treats NaN/inf as 0. If sum is 0, returns uniform weights.
+    """
+    out = []
+    for v in ws:
+        try:
+            fv = float(v)
+            if math.isfinite(fv) and fv > 0:
+                out.append(fv)
+            else:
+                out.append(0.0)
+        except Exception:
+            out.append(0.0)
+    s = sum(out)
+    if s <= 0:
+        # fallback to uniform positive weights
+        if len(out) == 0:
+            return []
+        return [1.0 / len(out) for _ in out]
+    return [v / s for v in out]
+
+
+def make_curve_weights(curve, K):
+    """Return a list of K positive weights according to `curve` spec.
+
+    curve: None or dict with keys:
+      - type: 'table' or 'power'
+      - for 'table': 'weights': list (ranks 1..N)
+      - for 'power': 'alpha': float
+    Behavior:
+      - table: use first K entries; if K>len(weights) extend by repeating last value.
+      - power: weight[r] = 1/(r**alpha) for rank r starting at 1.
+    """
+    if K <= 0:
+        return []
+    if not curve or not isinstance(curve, dict):
+        return [1.0] * K
+    typ = curve.get('type')
+    if typ == 'table':
+        tbl = curve.get('weights') or []
+        # ensure numeric
+        cleaned = []
+        for w in tbl:
+            try:
+                cleaned.append(float(w))
+            except Exception:
+                cleaned.append(0.0)
+        if not cleaned:
+            return [1.0] * K
+        if K <= len(cleaned):
+            return cleaned[:K]
+        # extend by repeating last weight
+        last = cleaned[-1]
+        return cleaned + [last] * (K - len(cleaned))
+    if typ == 'power':
+        try:
+            alpha = float(curve.get('alpha', 1.0))
+        except Exception:
+            alpha = 1.0
+        weights = []
+        for r in range(1, K + 1):
+            try:
+                w = 1.0 / (r ** alpha) if alpha != 0 else 1.0
+            except Exception:
+                w = 0.0
+            weights.append(w)
+        return weights
+    # unknown curve type: default uniform
+    return [1.0] * K
+
+
 def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board, depth: int, temperature: float, multipv: int = 10, mercy: dict = None, enforce_no_blunder: bool = False, blunder_threshold: int = 150, persona: str = None):
     """
     If temperature > 0, sample among top MultiPV moves with a soft weighting.
@@ -414,13 +537,19 @@ def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board
             pieces = 16
 
     # Persona-specific phase rules: reduce depth and increase temperature in endgames
-    if pieces <= 10:
-        if persona and persona.lower() in ('grasshopper', 'dandelion', 'student'):
-            depth = max(1, (depth or 1) - 2)
-            temperature = (temperature or 0.0) + 0.3
-        else:
-            depth = max(1, (depth or 1) - 1)
-            temperature = (temperature or 0.0) + 0.3
+    try:
+        cfg = get_persona_config(persona) if persona else None
+        threshold = int(cfg.get('pieces_threshold', 10)) if cfg else 10
+        depth_delta = int(cfg.get('endgame_depth_delta', -1)) if cfg else -1
+        temp_delta = float(cfg.get('endgame_temp_delta', 0.3)) if cfg else 0.3
+    except Exception:
+        threshold = 10
+        depth_delta = -1
+        temp_delta = 0.3
+
+    if pieces <= threshold:
+        depth = max(1, (depth or 1) + depth_delta)
+        temperature = (temperature or 0.0) + temp_delta
 
     # Request multi-PV analysis (engine should have MultiPV configured)
     try:
@@ -512,6 +641,19 @@ def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board
             pass
 
     move_choices = [m for m, _, _ in candidates]
+    # Apply persona curve weights (by candidate rank) if configured
+    try:
+        cfg = get_persona_config(persona) if persona else None
+        curve = cfg.get('curve') if cfg else None
+        curve_ws = make_curve_weights(curve, len(weights))
+        # multiply elementwise
+        weights = [w * cw for w, cw in zip(weights, curve_ws)]
+    except Exception:
+        pass
+
+    # Normalize weights and guard against degenerate distributions
+    weights = normalize_weights(weights)
+
     try:
         selected = _RNG.choices(move_choices, weights=weights, k=1)[0]
     except Exception:

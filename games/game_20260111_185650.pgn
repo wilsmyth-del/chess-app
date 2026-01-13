@@ -1,0 +1,11 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.11"]
+[Round "?"]
+[White "Player"]
+[Black "Engine"]
+[Result "0-1"]
+
+1. d4 d5 2. e3 c5 3. c4 e6 4. b4 cxd4 5. e4 dxe4 6. f3 Bxb4+ 7. Qd2 Bxd2+ 8.
+Bxd2 e3 9. Bxe3 dxe3 10. g3 Qa5+ 11. Ke2 Ne7 12. f4 Nbc6 13. g4 Qb6 14. f5 exf5
+15. g5 Qb2+ 16. Nd2 Qxd2+ 17. Kf3 Qf2# 0-1

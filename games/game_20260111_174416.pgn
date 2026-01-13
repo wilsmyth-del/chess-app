@@ -1,0 +1,11 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.11"]
+[Round "?"]
+[White "Grasshopper"]
+[Black "Player"]
+[Result "0-1"]
+
+1. a3 e5 2. c4 d5 3. b4 c5 4. Qa4+ b5 5. Qb3 dxc4 6. Qe3 Qd5 7. Bb2 c3 8. dxc3
+cxb4 9. Qd3 bxc3 10. Qf3 cxb2 11. e3 bxa1=Q 12. Qxf7+ Kxf7 13. h4 Qxb1+ 14. Ke2
+Qc4+ 15. Kd2 Qcc2# 0-1

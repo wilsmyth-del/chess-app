@@ -11,6 +11,24 @@ let selectedPiece = null; // like 'wK' or 'bq'
 // saved game FEN when entering Free Board tab so we can restore later
 let savedGameFenBeforeFree = null;
 
+// Guard to prevent concurrent engine requests and UI desync
+let engineBusy = false;
+
+function setEngineBusyState(b) {
+  engineBusy = !!b;
+  try {
+    const playBtn = document.getElementById('play-engine-btn'); if (playBtn) playBtn.disabled = engineBusy;
+    const persona = document.getElementById('engine-persona'); if (persona) persona.disabled = engineBusy;
+    const skill = document.getElementById('engine-skill'); if (skill) skill.disabled = engineBusy;
+    const time = document.getElementById('engine-time'); if (time) time.disabled = engineBusy;
+  } catch (e) { /* ignore UI toggles failing */ }
+}
+
+// Shared DOM element references (initialized on window load)
+let playerSelect = null;
+let enginePersonaSelect = null;
+let playBtn = null;
+
 // Debug/version stamp to detect wrong/old files being loaded in the browser
 console.log('main.js loaded: v1.2 - turn lock + promo modal + dark mode');
 
@@ -486,36 +504,14 @@ async function maybeTriggerAutoSave() {
       // ignore network errors for auto-save
     }
 
-    // Prompt the user and offer to reset the board to a neutral starting state
+    // End the game: always mark game over and stop engine play, but keep board as final position.
     try {
-      const ok = window.confirm(`Game over: ${resultText}\n\nPress OK to reset the board to the starting position.`);
-      if (ok) {
-        try { setPlayEngine(false); } catch (e) { /* ignore */ }
-        // Ask server for a fresh reset position and apply it
-        try {
-          const resp = await postReset();
-          if (resp && resp.fen) {
-            historyFens = [];
-            historyIndex = -1;
-            setFen(resp.fen, true);
-            gameOver = true;
-            autoPgnSaved = true;
-            setStatus('Game ended: ' + resultText);
-            const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
-          } else {
-            setStatus('Reset failed after game end');
-          }
-        } catch (e) {
-          setStatus('Reset failed after game end');
-        }
-      } else {
-        // Keep board as-is but mark as game over
-        gameOver = true;
-        setStatus('Game ended: ' + resultText);
-        const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
-      }
+      try { setPlayEngine(false); } catch (e) { /* ignore */ }
+      gameOver = true;
+      setStatus('Game ended: ' + resultText);
+      const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
     } catch (e) {
-      console.warn('User prompt failed', e);
+      console.warn('Finalizing game end failed', e);
     }
 
   } catch (e) {
@@ -566,6 +562,12 @@ async function fetchState() {
 }
 
 async function postMove(uci) {
+  // If we're in free-board (editor) mode, do not submit moves to the live game/server
+  if (freeBoardMode) {
+    console.debug('postMove refused: freeBoardMode active');
+    return Promise.resolve({ ok: false, error: 'free_board_active' });
+  }
+
   const engine = playEngine || false;
   const engineTime = parseFloat(document.getElementById('engine-time')?.value || '0.1');
   // Determine engine skill: prefer slider value; fall back to persona profile skill when slider missing/invalid
@@ -586,6 +588,28 @@ async function postMove(uci) {
   }
   const payload = { uci, engine_reply: engine, engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
   console.debug('postMove payload', payload);
+  // If this move requests an engine reply, ensure we don't start another engine request
+  if (payload.engine_reply) {
+    if (engineBusy) {
+      console.debug('postMove: engine busy, skipping engine-backed move request');
+      return Promise.resolve({ ok: false, error: 'engine_busy' });
+    }
+    setEngineBusyState(true);
+    try {
+      const r = await fetch('/api/move', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      return r.json();
+    } catch (e) {
+      throw e;
+    } finally {
+      setEngineBusyState(false);
+    }
+  }
+
+  // No engine reply requested — normal move post
   const r = await fetch('/api/move', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -600,6 +624,11 @@ async function postReset() {
 }
 
 async function postEngineMove() {
+  // Don't request engine moves while editing positions in free-board mode
+  if (freeBoardMode) {
+    console.debug('postEngineMove refused: freeBoardMode active');
+    return null;
+  }
   const engineTime = parseFloat(document.getElementById('engine-time')?.value || '0.1');
   // Determine engine skill for engine-move request using same fallback logic
   const enginePersona = (document.getElementById('engine-persona')?.value || '').trim();
@@ -619,12 +648,23 @@ async function postEngineMove() {
   }
   const payload = { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
   console.debug('postEngineMove payload', payload);
-  const r = await fetch('/api/engine_move', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  });
-  return r.json();
+  if (engineBusy) {
+    console.debug('postEngineMove: engineBusy, skipping');
+    return null;
+  }
+  setEngineBusyState(true);
+  try {
+    const r = await fetch('/api/engine_move', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    return r.json();
+  } catch (e) {
+    throw e;
+  } finally {
+    setEngineBusyState(false);
+  }
 }
 
 function showPromotionModal(color) {
@@ -672,6 +712,8 @@ function showPromotionModal(color) {
 
 async function onDrop(source, target, piece, newPos, oldPos, orientation) {
   console.log('ON DROP HANDLER ACTIVE', source, target, piece);
+  // Block user moves while an engine request is in flight to avoid UI/server desync
+  if (engineBusy && !freeBoardMode) { setStatus('Engine busy — try again'); return 'snapback'; }
   // Free-board editing: allow dragging pieces freely and removing to offboard
   if (freeBoardMode) {
     try {
@@ -842,7 +884,7 @@ window.addEventListener('load', async () => {
   game = new Chess();
   // Load player color preference (controls which side is at the bottom)
   const savedPlayerColor = (localStorage.getItem('playerColor') || 'white');
-  const playerSelect = document.getElementById('player-color');
+  playerSelect = document.getElementById('player-color');
   if (playerSelect) playerSelect.value = savedPlayerColor;
 
   // Position captured trays under the board on the side matching the opponent
@@ -867,7 +909,7 @@ window.addEventListener('load', async () => {
   });
 
   // Persona controls
-  const enginePersonaSelect = document.getElementById('engine-persona');
+  enginePersonaSelect = document.getElementById('engine-persona');
   try {
     const savedPersona = localStorage.getItem('enginePersona');
     if (enginePersonaSelect && savedPersona) enginePersonaSelect.value = savedPersona;
@@ -893,6 +935,9 @@ window.addEventListener('load', async () => {
   if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', updatePlayersDisplay);
   // initial render of the players mapping
   try { updatePlayersDisplay(); } catch (e) { }
+
+  // Ensure playBtn reference is available for handlers that run earlier
+  playBtn = document.getElementById('play-engine-btn');
 
   // Header persona indicator (keeps user informed which persona is active)
   const personaIndicator = document.getElementById('persona-indicator');
@@ -932,6 +977,7 @@ window.addEventListener('load', async () => {
         const freeToggle = document.getElementById('free-board-toggle');
         if (name === 'free') {
           if (!freeBoardMode) {
+            try { if (playEngine) setPlayEngine(false); } catch (e) {}
             // remember current game position if present
             try { savedGameFenBeforeFree = game ? game.fen() : null; } catch (e) { savedGameFenBeforeFree = null; }
             freeBoardMode = true;
@@ -1439,32 +1485,30 @@ window.addEventListener('load', async () => {
   async function doResign() {
     const ok = confirm('Are you sure you want to resign this game?');
     if (!ok) return;
-    try { setPlayEngine(false); } catch (e) { /* ignore if not initialized yet */ }
     // Determine which side the human is playing from UI
     const playerSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
+    // Capture engine state before stopping play
+    const engineFlag = !!playEngine;
+    const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (engineFlag ? 'Engine' : 'Opponent');
     try {
-      const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
-      const payload = { resigned_side: playerSide, user_side: playerSide, user_name: 'Player', opponent_name: opponentName, engine: !!playEngine };
+      try { setPlayEngine(false); } catch (e) { /* ignore if not initialized yet */ }
+
+      const payload = { resigned_side: playerSide, user_side: playerSide, user_name: 'Player', opponent_name: opponentName, engine: engineFlag };
       const r = await fetch('/api/resign', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
       });
       const data = await r.json();
-      if (data && data.fen) {
-        // mark game over and show result
-        gameOver = true;
-        autoPgnSaved = true;
-        historyFens = [];
-        historyIndex = -1;
-        setFen(data.fen, true);
-        if (data.winner) {
-          setStatus(`Resigned — ${data.winner} wins` + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
-          const el = document.getElementById('result-indicator');
-          if (el) el.textContent = `${data.winner} wins (resignation)`;
-        } else {
-          setStatus('Resigned' + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
-        }
+      // Mark game over and show resignation result; keep the final board position as-is
+      gameOver = true;
+      autoPgnSaved = !!(data && data.pgn_file);
+      if (data && data.winner) {
+        setStatus(`Resigned — ${data.winner} wins` + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
+        const el = document.getElementById('result-indicator'); if (el) el.textContent = `${data.winner} wins (resignation)`;
+      } else {
+        setStatus('Resigned' + (data && data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
       }
+      // Do NOT modify board FEN or clear history here; user may inspect final position or use Reset button.
     } catch (e) {
       setStatus('Network error: resign failed');
     }
@@ -1504,15 +1548,7 @@ window.addEventListener('load', async () => {
   // Move list is a permanent element under the right-side accordion (#move-list)
 
   // Keyboard navigation for history (left/right arrows)
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      goBack();
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      goForward();
-    }
-  });
+  // (Listener already registered on DOMContentLoaded; do not register again)
 
   // Theme (dark mode) toggle: apply and persist preference
   function applyTheme(theme) {
@@ -1602,7 +1638,7 @@ window.addEventListener('load', async () => {
 
   // Game start/stop (replaces old engine toggle). Track active game state in `playEngine`.
   // playback flag (game active)
-  const playBtn = document.getElementById('play-engine-btn');
+  playBtn = document.getElementById('play-engine-btn');
   function setPlayEngine(on, opts = {}) {
     playEngine = !!on;
     // when a game is active, persona cannot be changed

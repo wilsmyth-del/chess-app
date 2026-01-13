@@ -1,0 +1,14 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.11"]
+[Round "?"]
+[White "Player"]
+[Black "Ninja"]
+[Result "0-1"]
+
+1. d4 Nf6 2. Bf4 g6 3. e3 Bg7 4. Nf3 a6 5. Nbd2 Nh5 6. Bg5 h6 7. Bh4 d6 8. Bd3
+Bd7 9. c3 a5 10. O-O a4 11. a3 O-O 12. b3 f5 13. bxa4 g5 14. Rb1 e6 15. Bg3
+Rxa4 16. h3 b6 17. Qc1 Ra8 18. c4 Qe7 19. c5 bxc5 20. dxc5 Nxg3 21. fxg3 d5 22.
+g4 h5 23. gxf5 exf5 24. h4 Qxe3+ 25. Kh1 Nc6 26. Rb3 Na5 27. Qc2 Nxb3 28. Qxb3
+Qxc5 29. Nxg5 Rxa3 30. Qxa3 Qxa3 31. Bxf5 Qe7 32. Bxd7 Rxf1+ 33. Kh2 Qe5+ 34.
+Kh3 Qe3+ 35. Kh2 Be5+ 36. g3 Qg1+ 37. Kh3 Qxg3# 0-1
