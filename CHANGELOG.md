@@ -1,5 +1,17 @@
 # CHANGELOG — Chess (2026-01-01)
 
+## 2026-01-13 — Cleanup, flip removal, and verification
+
+- Removed the unused `flip-on-start` checkbox and all associated client-side wiring and console references.
+- UI cleanup: centralized start/orientation logic (`startGame()`, `setBoardOrientation()`), consolidated persona selection to `engine-persona`, and enforced the SETUP → IN_GAME → RESULT state machine.
+- Fixed several front-end runtime errors and added defensive guards (`engineBusy`, `moveInFlight`, `pendingPromotion`). Ensured End Game / Play button remains usable while engine requests are in-flight.
+- Server lifecycle fix: `reset()` clears previous termination fields; promotion, resign, and PGN save flows were verified.
+- Updated `static/main.js` and refreshed the root `main_js_dump.txt` snapshot.
+
+Files changed (high level): `templates/index.html`, `static/main.js`, `main_js_dump.txt`, `app/chess_core.py`, `app/api.py`
+
+Verification performed (smoke tests): `/api/state`, `/api/reset`, `/api/move` (played `e2e4` -> engine replied), promotion (`a7a8q`), and `/api/resign` — server returned expected FENs, game_over flags, and PGNs.
+
 ## 2026-01-11 — Stability, persona defaults, and UI hardening
 
 - Normalized persona MultiPV defaults to 10 across persona profiles and server callers; MultiPV behavior is now consistent unless explicitly overridden by a persona.

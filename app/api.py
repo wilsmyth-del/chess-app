@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request, current_app, render_template, send_file, abort
-from app.chess_core import ChessGame
+from app.chess_core import ChessGame, BOT_PRESETS
 from app.engine_personas import PERSONA_DEFAULT_ENGINE_TIME
 import os
 import datetime
@@ -11,6 +11,19 @@ api_bp = Blueprint("api", __name__)
 
 # Single global game for scaffold; later replace with per-session or DB storage
 game = ChessGame()
+
+# Feature gate for v1: when True, hide Free Board / Study features and related endpoints
+V1_MODE = True
+
+from functools import wraps
+
+def v1_guard(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if V1_MODE:
+            return jsonify({'ok': False, 'error': 'disabled_in_v1'}), 404
+        return f(*args, **kwargs)
+    return wrapper
 
 
 def state_payload():
@@ -42,6 +55,29 @@ def api_move():
             engine_time = 0.1
         # Parse engine parameters: separate numeric skill and persona string
         engine_persona = data.get('engine_persona')
+        # If client selected an `opponent_preset`, map it to canonical engine params
+        # from `BOT_PRESETS`. Preserve explicit engine_persona/engine_skill if
+        # provided by the caller; otherwise use preset defaults.
+        opponent_preset = data.get('opponent_preset')
+        if opponent_preset:
+            try:
+                preset = BOT_PRESETS.get(opponent_preset.lower())
+                if preset:
+                    if engine_persona is None:
+                        engine_persona = preset.get('engine_persona')
+                    # only set engine_time/skill when not explicitly provided
+                    if 'engine_time' in preset and data.get('engine_time') is None:
+                        try:
+                            engine_time = float(preset.get('engine_time', engine_time))
+                        except Exception:
+                            pass
+                    if 'engine_skill' in preset and data.get('engine_skill') is None:
+                        try:
+                            engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         # validate persona name if provided
         try:
             from app.engine_personas import is_persona_allowed
@@ -76,17 +112,40 @@ def api_move():
         except Exception:
             pass
         reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
+        # FIX: if engine returned None but made a move (engine pushed to board), recover it
+        if reply is None:
+            try:
+                if hasattr(game, 'board') and getattr(game.board, 'move_stack', None):
+                    if len(game.board.move_stack) > 0:
+                        try:
+                            reply = game.board.move_stack[-1].uci()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         try:
             with open(dbg, 'a', encoding='utf-8') as fh:
                 fh.write(f"[MOVE-RESULT] {datetime.datetime.now().isoformat()} reply={repr(reply)} fen={game.get_fen()} engine_skill={engine_skill} engine_persona={engine_persona} rng_seed={engine_rng_seed}\n")
         except Exception:
             pass
-    return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": reply})
+    # After applying player move (and optional engine reply), check game-over state
+    is_over, reason, winner = game.check_game_over()
+    if is_over:
+        end_payload = game.end_game(reason, winner)
+        # Do NOT auto-save or reset here; return final state to client for user confirmation
+        return jsonify({"ok": True, "fen": game.get_fen(), "move_uci": uci, "engine_reply": reply, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')})
+
+    return jsonify({"ok": True, "fen": game.get_fen(), "move_uci": uci, "engine_reply": reply, "game_over": False, "reason": None, "result": None, "pgn": None})
 
 
 @api_bp.route("/api/reset", methods=["POST"])
 def api_reset():
     game.reset()
+    # paranoia: ensure ACTIVE even if reset gets modified later
+    try:
+        game.status = 'ACTIVE'
+    except Exception:
+        pass
     return jsonify(state_payload())
 
 
@@ -118,6 +177,50 @@ def api_engine_move():
         engine_skill = None
 
     engine_persona = data.get('engine_persona')
+    # Map opponent preset to canonical engine params when provided
+    opponent_preset = data.get('opponent_preset')
+    if opponent_preset:
+        try:
+            preset = BOT_PRESETS.get(opponent_preset.lower())
+            if preset:
+                if engine_persona is None:
+                    engine_persona = preset.get('engine_persona')
+                if data.get('engine_time') is None and 'engine_time' in preset:
+                    try:
+                        engine_time = float(preset.get('engine_time', engine_time))
+                    except Exception:
+                        pass
+                if data.get('engine_skill') is None and 'engine_skill' in preset:
+                    try:
+                        engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    # Map an opponent preset (if provided) to canonical engine params from BOT_PRESETS.
+    # The preset will provide defaults for persona/skill/time when the caller
+    # did not explicitly supply those fields.
+    opponent_preset = data.get('opponent_preset')
+    if opponent_preset:
+        try:
+            preset = BOT_PRESETS.get(opponent_preset.lower())
+            if preset:
+                if engine_persona is None:
+                    engine_persona = preset.get('engine_persona')
+                # if engine_time was not passed explicitly, take preset time
+                if data.get('engine_time') is None and 'engine_time' in preset:
+                    try:
+                        engine_time = float(preset.get('engine_time', engine_time))
+                    except Exception:
+                        pass
+                # if engine_skill not provided explicitly, take preset skill
+                if data.get('engine_skill') is None and 'engine_skill' in preset:
+                    try:
+                        engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     try:
         from app.engine_personas import is_persona_allowed
         if engine_persona and not is_persona_allowed(engine_persona):
@@ -155,12 +258,30 @@ def api_engine_move():
     except Exception:
         pass
     reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
+    # FIX: if engine returned None but made a move, recover it from the board move stack
+    if reply is None:
+        try:
+            if hasattr(game, 'board') and getattr(game.board, 'move_stack', None):
+                if len(game.board.move_stack) > 0:
+                    try:
+                        reply = game.board.move_stack[-1].uci()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     try:
         with open(dbg, 'a', encoding='utf-8') as fh:
             fh.write(f"[ENGINE_MOVE_RESULT] {datetime.datetime.now().isoformat()} reply={repr(reply)} fen={game.get_fen()} engine_skill={engine_skill} engine_persona={engine_persona} rng_seed={engine_rng_seed}\n")
     except Exception:
         pass
-    return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": reply})
+    # Check for terminal state after engine move
+    is_over, reason, winner = game.check_game_over()
+    if is_over:
+        end_payload = game.end_game(reason, winner)
+        # Do NOT auto-save or reset here; return final state to client for user confirmation
+        return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": reply, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')})
+
+    return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": reply, "game_over": False, "reason": None, "result": None, "pgn": None})
 
 
 @api_bp.route("/api/resign", methods=["POST"])
@@ -177,27 +298,20 @@ def api_resign():
         winner = 'black'
     elif resigned == 'black':
         winner = 'white'
-    # Save PGN of the finished game before resetting. Provide user side info if available.
-    pgn_fname = None
+    # Finalize game via centralized end_game and return final PGN/result
     try:
-        result_tag = '1-0' if winner == 'white' else ('0-1' if winner == 'black' else '*')
         user_side = data.get('user_side') or resigned
         user_name = data.get('user_name') or 'Player'
         opponent_name = data.get('opponent_name') or ('Engine' if data.get('engine', False) else 'Opponent')
-        pgn_fname = save_pgn_to_file(result=result_tag, user_side=user_side, user_name=user_name, opponent_name=opponent_name)
-    except Exception:
-        pgn_fname = None
-
-    # Reset the game state server-side
-    game.reset()
-
-    payload = state_payload()
-    # Attach resign metadata for client
-    payload.update({"resign": True, "resigned_side": resigned, "winner": winner, "pgn_file": pgn_fname})
-    return jsonify(payload)
+        end_payload = game.end_game('resign', winner=winner, user_side=user_side, user_name=user_name, opponent_name=opponent_name)
+        # Do not reset here; caller may inspect final board before reset
+        resp = {"ok": True, "resign": True, "resigned_side": resigned, "winner": winner, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')}
+        return jsonify(resp)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
-def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_name='Opponent'):
+def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_name='Opponent', pgn_text=None):
     """Serialize current game board to PGN and save to timestamped file under 'games/'. Returns filename.
 
     user_side: 'white' or 'black' or None. If provided, sets the White/Black headers accordingly.
@@ -209,36 +323,42 @@ def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_na
     fname = f'game_{now}.pgn'
     path = os.path.join(outdir, fname)
 
-    # Build PGN game
-    g = chess.pgn.Game()
-    g.headers['Event'] = 'Chess'
-    g.headers['Date'] = datetime.datetime.now().strftime('%Y.%m.%d')
-    g.headers['Result'] = result
+    # If caller supplied a PGN string, write that; otherwise build from current board
+    if pgn_text is None:
+        # Build PGN game
+        g = chess.pgn.Game()
+        g.headers['Event'] = 'Chess'
+        g.headers['Date'] = datetime.datetime.now().strftime('%Y.%m.%d')
+        # Prefer stored game result/termination when available (do not override)
+        result_to_use = getattr(game, 'result', None) or result
+        g.headers['Result'] = result_to_use
+        if getattr(game, 'end_reason', None):
+            g.headers['Termination'] = game.end_reason
 
-    # Set player names if we know which side the user played
-    if user_side == 'white':
-        g.headers['White'] = user_name
-        g.headers['Black'] = opponent_name
-    elif user_side == 'black':
-        g.headers['White'] = opponent_name
-        g.headers['Black'] = user_name
-    else:
-        g.headers['White'] = 'White'
-        g.headers['Black'] = 'Black'
+        # Set player names if we know which side the user played
+        if user_side == 'white':
+            g.headers['White'] = user_name
+            g.headers['Black'] = opponent_name
+        elif user_side == 'black':
+            g.headers['White'] = opponent_name
+            g.headers['Black'] = user_name
+        else:
+            g.headers['White'] = 'White'
+            g.headers['Black'] = 'Black'
 
-    node = g
-    try:
-        # Add moves from the board's move stack sequentially
-        for mv in game.board.move_stack:
-            node = node.add_variation(mv)
-    except Exception:
-        pass
+        node = g
+        try:
+            # Add moves from the board's move stack sequentially
+            for mv in game.board.move_stack:
+                node = node.add_variation(mv)
+        except Exception:
+            pass
 
-    exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
-    pgn_text = g.accept(exporter)
+        exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
+        pgn_text = g.accept(exporter)
 
     with open(path, 'w', encoding='utf-8') as fh:
-        fh.write(pgn_text)
+        fh.write(pgn_text or '')
 
     return fname
 
@@ -272,11 +392,16 @@ def api_save_pgn():
     user_side = data.get('user_side')
     user_name = data.get('user_name') or 'Player'
     opponent_name = data.get('opponent_name') or ('Engine' if data.get('engine') else 'Opponent')
+    pgn_text = data.get('pgn_text')
     try:
-        fname = save_pgn_to_file(result=result, user_side=user_side, user_name=user_name, opponent_name=opponent_name)
+        fname = save_pgn_to_file(result=result, user_side=user_side, user_name=user_name, opponent_name=opponent_name, pgn_text=pgn_text)
         return jsonify({"ok": True, "pgn_file": fname})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# NOTE: `/api/ack_game_over` intentionally removed per v1 decision -
+# client uses resp.pgn for download and calls `/api/reset` for New Game.
 
 
 @api_bp.route("/api/engine_move_debug", methods=["POST"])
@@ -317,6 +442,18 @@ def api_engine_move_debug():
         err_tb = traceback.format_exc()
         # include traceback in response where reasonable
         return jsonify({"ok": False, "error": err, "traceback": err_tb, "pre_fen": pre_fen}), 500
+
+    # FIX: if engine returned None but made a move, recover it from the board move stack
+    if reply is None:
+        try:
+            if hasattr(game, 'board') and getattr(game.board, 'move_stack', None):
+                if len(game.board.move_stack) > 0:
+                    try:
+                        reply = game.board.move_stack[-1].uci()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     post_fen = game.get_fen()
     out = {"ok": True, "pre_fen": pre_fen, "post_fen": post_fen, "reply": reply, "engine_skill": engine_skill, "engine_persona": engine_persona}
@@ -367,11 +504,13 @@ def api_engine_move_debug():
 
 
 @api_bp.route('/test_personas', methods=['GET'])
+@v1_guard
 def test_personas_page():
     return render_template('test_personas.html')
 
 
 @api_bp.route('/api/simulate', methods=['POST'])
+@v1_guard
 def api_simulate():
     """Run a headless simulation between two personas and return PGN + move list."""
     data = request.get_json() or {}
@@ -470,6 +609,7 @@ def api_simulate():
 
 
 @api_bp.route('/api/personas', methods=['GET'])
+@v1_guard
 def api_personas_list():
     try:
         from app.engine_personas import list_personas, get_persona_config
@@ -482,6 +622,7 @@ def api_personas_list():
 
 
 @api_bp.route('/api/persona/<name>', methods=['GET', 'POST'])
+@v1_guard
 def api_persona(name):
     try:
         from app.engine_personas import get_persona_config, set_persona_override, validate_persona_override
@@ -505,6 +646,7 @@ def api_persona(name):
 
 
 @api_bp.route('/api/persona/<name>/reset', methods=['POST'])
+@v1_guard
 def api_persona_reset(name):
     try:
         from app.engine_personas import reset_persona
@@ -517,6 +659,7 @@ def api_persona_reset(name):
 
 
 @api_bp.route('/api/personas/reset_all', methods=['POST'])
+@v1_guard
 def api_personas_reset_all():
     try:
         from app.engine_personas import reset_all_persona_overrides
@@ -529,6 +672,7 @@ def api_personas_reset_all():
 
 
 @api_bp.route('/api/personas/export', methods=['GET'])
+@v1_guard
 def api_personas_export():
     try:
         from app.engine_personas import export_persona_overrides
@@ -539,6 +683,7 @@ def api_personas_export():
 
 
 @api_bp.route('/api/personas/import', methods=['POST'])
+@v1_guard
 def api_personas_import():
     data = request.get_json() or {}
     # Accept either {'overrides': {...}} or the raw dict
@@ -576,6 +721,7 @@ def api_engine_info():
 
 
 @api_bp.route('/api/simulate_batch', methods=['POST'])
+@v1_guard
 def api_simulate_batch():
     """Run multiple persona-vs-persona games server-side and save PGNs + CSV summary."""
     data = request.get_json() or {}
@@ -727,6 +873,7 @@ def api_open_engine_debug():
 
 
 @api_bp.route('/api/open_pgn_notepad', methods=['POST'])
+@v1_guard
 def api_open_pgn_notepad():
     data = request.get_json() or {}
     fname = data.get('filename')
@@ -747,6 +894,71 @@ def api_open_pgn_notepad():
                 return jsonify({'ok': False, 'error': str(e)}), 500
         else:
             return jsonify({'ok': False, 'error': 'not_supported_on_os'}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# Dev-only helper: inspect and tweak in-memory bot presets during development.
+# Enabled unless running in v1-mode with DEBUG disabled.
+@api_bp.route('/api/dev/presets', methods=['GET', 'POST'])
+def api_dev_presets():
+    # Disable when v1 mode is active and not in debug
+    try:
+        if V1_MODE and not current_app.debug:
+            return jsonify({'ok': False, 'error': 'disabled_in_v1'}), 404
+    except Exception:
+        pass
+
+    # GET: return current presets
+    if request.method == 'GET':
+        try:
+            # shallow copy to avoid accidental mutation
+            data = {k: dict(v) for k, v in BOT_PRESETS.items()}
+            return jsonify({'ok': True, 'presets': data})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
+    # POST: update an existing preset in-memory for this dev session
+    data = request.get_json() or {}
+    name = data.get('name')
+    preset = data.get('preset')
+    if not name or not isinstance(preset, dict):
+        return jsonify({'ok': False, 'error': 'missing_name_or_preset'}), 400
+    key = str(name).lower()
+    if key not in BOT_PRESETS:
+        return jsonify({'ok': False, 'error': 'unknown_preset'}), 400
+    try:
+        # Validate fields we accept: display_name, engine_persona, engine_skill, engine_time
+        upd = {}
+        if 'display_name' in preset:
+            upd['display_name'] = str(preset.get('display_name') or '')
+        if 'engine_persona' in preset:
+            val = preset.get('engine_persona')
+            upd['engine_persona'] = None if val is None else str(val)
+        if 'engine_skill' in preset:
+            v = preset.get('engine_skill')
+            upd['engine_skill'] = None if v is None else int(v)
+        if 'engine_time' in preset:
+            try:
+                upd['engine_time'] = float(preset.get('engine_time'))
+            except Exception:
+                upd['engine_time'] = BOT_PRESETS[key].get('engine_time')
+
+        BOT_PRESETS[key].update(upd)
+        return jsonify({'ok': True, 'preset': BOT_PRESETS[key]})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@api_bp.route('/api/dev/game_status', methods=['GET'])
+def api_dev_game_status():
+    # Dev-only: expose simple lifecycle fields. Disabled when v1 mode active and not debug.
+    try:
+        if V1_MODE and not current_app.debug:
+            return jsonify({'ok': False, 'error': 'disabled_in_v1'}), 404
+    except Exception:
+        pass
+    try:
+        return jsonify({'ok': True, 'status': getattr(game, 'status', None), 'end_reason': getattr(game, 'end_reason', None), 'result': getattr(game, 'result', None)})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 

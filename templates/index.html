@@ -55,47 +55,44 @@
             <div id="result-indicator"></div>
           </div>
 
-          <div class="tabs" role="tablist" aria-label="Modes">
-            <button class="tab-btn" data-tab="game" role="tab" aria-selected="true">Game</button>
-            <button class="tab-btn" data-tab="free" role="tab">Free Board</button>
-            <!-- Puzzles tab removed -->
-            <button class="tab-btn" data-tab="study" role="tab">Study</button>
+          <!-- Simplified UI: three states only: SETUP, IN_GAME, RESULT -->
+          <div id="setup-panel" class="panel">
+            <h3>Setup</h3>
+            <div style="margin-top:8px">
+              <label>Player name: <input type="text" id="player-name" placeholder="Your name" /></label>
+            </div>
+            <div class="form-group" style="margin-top:12px">
+              <label>Opponent</label>
+              <select id="engine-persona" style="width:100%" title="Select your opponent">
+                <option value="Grasshopper">Grasshopper</option>
+                <option value="Student" selected>Student</option>
+                <option value="Adept">Adept</option>
+                <option value="Ninja">Ninja</option>
+                <option value="Sensei">Sensei</option>
+              </select>
+              <div class="hint" style="font-size:0.8em; color:#888; margin-top:4px">
+                Each opponent has a unique playing style and skill level.
+              </div>
+            </div>
+            <!-- Flip board option removed (never used) -->
+            <!-- Start Game control consolidated to the board header `play-engine-btn` -->
           </div>
 
-          <div class="tab-cards">
-            <div class="tab-card" id="card-game" data-tab="game">
-              <h3>Game</h3>
-              <p>Normal play: use controls to start/stop games, save PGN, and toggle engine play.</p>
-              <div style="margin-top:8px">
-                <button id="game-reset-btn" class="ctrl small">Reset</button>
-              </div>
+          <div id="in-game-panel" class="panel" style="display:none">
+            <h3>In Game</h3>
+            <div style="margin-top:8px">
+              <button id="end-game-btn" class="ctrl danger">End Game</button>
             </div>
-            <div class="tab-card" id="card-free" data-tab="free">
-              <h3>Free Board</h3>
-              <p>Drag pieces freely to create custom positions. Use the piece palette below the board.</p>
-              <div class="free-controls" style="margin-top:8px">
-                <label style="margin-left:8px">
-                  <input type="checkbox" id="free-board-toggle" /> Free Board
-                </label>
-                <button id="clear-board-btn" class="ctrl small" style="margin-left:8px">Clear Board</button>
-                <button id="reset-btn" class="ctrl small" style="margin-left:8px">Reset</button>
-                <label style="margin-left:8px">Start to move:
-                  <select id="start-to-move">
-                    <option value="white">White</option>
-                    <option value="black">Black</option>
-                  </select>
-                </label>
-                <button id="start-from-pos-btn" class="ctrl small" style="margin-left:8px">Start From Position</button>
-              </div>
-              <div id="piece-palette-placeholder" style="margin-top:8px"></div>
+          </div>
+
+          <div id="result-panel" class="panel" style="display:none">
+            <h3>Result</h3>
+            <div id="result-banner" style="margin-top:8px;font-weight:700"></div>
+            <div id="result-reason" style="margin-top:6px;color:var(--muted)"></div>
+            <div style="margin-top:8px">
+              <button id="download-final-pgn" class="ctrl small">Download PGN</button>
+              <button id="new-game-btn" class="ctrl small">New Game</button>
             </div>
-            <!-- Puzzles card removed -->
-            <div class="tab-card" id="card-study" data-tab="study">
-              <h3>Study / Analysis</h3>
-              <p>Study tools and analysis appear here (coming soon).</p>
-              <div style="margin-top:8px">FEN: <span id="fen"></span></div>
-            </div>
-            <!-- Tools moved to dedicated /test_personas page; replaced by floating button on board -->
           </div>
 
             <div class="accordion">
@@ -109,19 +106,7 @@
                 </select>
               </label>
               <!-- Player color chooser is above -->
-              <div style="margin-top:8px">
-                <label>Persona:
-                  <select id="engine-persona" title="Select a playing persona; affects engine strength and style">
-                    <option value="">(none)</option>
-                    <option value="Grasshopper">Grasshopper</option>
-                    <option value="Student" selected>Student</option>
-                    <option value="Adept">Adept</option>
-                    <option value="Ninja">Ninja</option>
-                    <option value="Sensei">Sensei</option>
-                  </select>
-                </label>
-                <div class="hint" style="margin-top:6px">Persona controls engine strength/style (e.g. Grasshopper = weaker, Sensei = stronger).</div>
-              </div>
+              <!-- Opponent/persona selection moved to Setup panel; single source of truth. -->
               <!-- Thinking speed selector removed: personas use an internal engine-time default -->
               <div id="players-display" style="margin-top:8px; font-weight:600"></div>
               <!-- Captured trays update controls removed; captured pieces update automatically during play -->
@@ -158,6 +143,54 @@
 
     <!-- popout modal removed; move list is permanent below the right-side accordion -->
 
+    <script>
+      // Expose server-side v1 flag to client JS
+      window.V1_MODE = {{ 'true' if v1_mode else 'false' }};
+      window.DEBUG_MODE = {{ 'true' if debug_mode else 'false' }};
+    </script>
+    {% if debug_mode %}
+    <!-- Development-only debug panel (read-only). Visible only when Flask debug is enabled. -->
+    <div id="dev-debug-panel" style="position:fixed;right:8px;bottom:8px;z-index:1000;background:#fff;border:1px solid #ccc;padding:8px;font-size:12px;max-width:300px;box-shadow:0 2px 6px rgba(0,0,0,0.2);opacity:0.95">
+      <div style="font-weight:700;margin-bottom:6px">DEV: Debug Panel</div>
+      <div id="dev-preset-name">Preset: -</div>
+      <div id="dev-engine-time">Engine time: -</div>
+      <div id="dev-engine-skill">Engine skill: -</div>
+      <div id="dev-randomness">Randomness/blunder persona: -</div>
+      <div id="dev-game-status">Game: -</div>
+    </div>
+    <script>
+    (function(){
+      function refresh(){
+        // Read selected opponent/persona from the DOM if available
+        var selEl = document.getElementById('engine-persona');
+        var sel = selEl ? selEl.value : null;
+        // Fetch dev presets (will be available only when debug endpoints are enabled)
+        fetch('/api/dev/presets').then(function(r){ return r.json(); }).then(function(d){
+          if(d && d.ok && d.presets && sel){
+            var p = d.presets[sel.toLowerCase()];
+            if(p){
+              document.getElementById('dev-preset-name').textContent = 'Preset: ' + (p.display_name || sel);
+              document.getElementById('dev-engine-time').textContent = 'Engine time: ' + (p.engine_time == null ? '-' : p.engine_time);
+              document.getElementById('dev-engine-skill').textContent = 'Engine skill: ' + (p.engine_skill == null ? '-' : p.engine_skill);
+              document.getElementById('dev-randomness').textContent = 'Randomness/blunder persona: ' + (p.engine_persona || '-');
+            }
+          }
+        }).catch(function(){});
+
+        // Fetch simple game lifecycle info
+        fetch('/api/dev/game_status').then(function(r){ return r.json(); }).then(function(d){
+          if(d && d.ok){
+            var txt = 'Status: ' + (d.status || '-') + (d.status === 'ENDED' ? (' | ' + (d.end_reason || '') + ' | ' + (d.result || '')) : '');
+            document.getElementById('dev-game-status').textContent = txt;
+          }
+        }).catch(function(){});
+      }
+      // initial refresh and periodic updates
+      setTimeout(refresh, 200);
+      setInterval(refresh, 2000);
+    })();
+    </script>
+    {% endif %}
     <script src="/static/main.js?v={{ main_js_version }}"></script>
   </body>
 </html>

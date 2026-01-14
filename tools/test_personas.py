@@ -57,6 +57,11 @@ personas.pick_move_with_multipv = fake_pick
 def run_test(persona_name, repeats=4, rng_seed=None):
     game = chess_core.ChessGame()
     game.reset()
+    # paranoia: ensure ACTIVE even if reset gets modified later
+    try:
+        game.status = 'ACTIVE'
+    except Exception:
+        pass
     print('\nTesting persona:', persona_name)
     print('Initial blunder budget:', game._allowed_blunders_for_persona(persona_name))
     for i in range(repeats):

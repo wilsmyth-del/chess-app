@@ -1,0 +1,15 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.12"]
+[Round "?"]
+[White "White"]
+[Black "Black"]
+[Result "1/2-1/2"]
+[Termination "stalemate"]
+
+1. e3 c5 2. d3 Nc6 3. e4 e6 4. d4 Nf6 5. Ke2 Qb6 6. e5 d6 7. d5 Be7 8. Kd3 Ng4
+9. Qxg4 Qb5+ 10. Qc4 Nb4+ 11. Kc3 Qxc4+ 12. Kxc4 Bd7 13. exd6 O-O-O 14. dxe6
+Bc6 15. dxe7 Rd1 16. e8=Q+ Rxe8 17. Be2 Bb5+ 18. Kxb5 f6 19. Bxd1 Rxe6 20. Bg4
+Nc6 21. Bxe6+ Kb8 22. Bd5 Ne7 23. Bxb7 h5 24. Bf3 Nf5 25. Bxh5 Nh6 26. Be3 g5
+27. Bxc5 Nf7 28. Be7 Ka8 29. Bxf6 Ne5 30. Bxg5 a6+ 31. Kxa6 Nf7 32. Bg4 Nd8 33.
+Bf5 Kb8 34. Bf4+ Ka8 35. Be4+ Nb7 36. Kb6 1/2-1/2

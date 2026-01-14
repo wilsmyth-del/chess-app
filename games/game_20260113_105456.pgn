@@ -1,0 +1,11 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.13"]
+[Round "?"]
+[White "Engine"]
+[Black "Player"]
+[Result "1-0"]
+[Termination "checkmate"]
+
+1. c3 e5 2. g3 Ke7 3. Qc2 Ke6 4. Bh3+ Kd6 5. d4 Kd5 6. Qb3+ Ke4 7. Qxf7 Ne7 8.
+f3# 1-0

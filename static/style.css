@@ -202,5 +202,27 @@ html, body {
 	.right-col { max-width:100%; }
 }
 
+/* Dev debug panel theme-aware styling */
+/* Dev debug panel: force a light, high-contrast appearance so it's readable
+   even when the site is in dark mode. This panel is dev-only and should
+   remain visually distinct from the rest of the UI. */
+#dev-debug-panel {
+	background: #ffffff; /* light card */
+	color: #0b1220; /* dark text for readability */
+	border: 1px solid rgba(0,0,0,0.08);
+	box-shadow: 0 6px 18px rgba(2,6,8,0.12);
+	opacity: 0.96;
+}
+
+/* Ensure the same readable styling in dark theme (override theme variables).
+   Keep it developer-facing only so we intentionally break theme here. */
+[data-theme="dark"] #dev-debug-panel {
+	background: #ffffff;
+	color: #0b1220;
+	border: 1px solid rgba(0,0,0,0.12);
+	box-shadow: 0 6px 18px rgba(2,6,8,0.18);
+	opacity: 0.96;
+}
+
 /* Dark theme: slightly lighter border for move list */
 [data-theme="dark"] .move-list { border-color: rgba(255,255,255,0.06); }

@@ -102,6 +102,11 @@ def run_tests():
         chess.engine.SimpleEngine.popen_uci = lambda path: fake_eng
         game = ChessGame()
         game.reset()
+        # paranoia: ensure ACTIVE even if reset gets modified later
+        try:
+            game.status = 'ACTIVE'
+        except Exception:
+            pass
         persona = 'student'
         print('Initial budget for', persona, '=>', game._allowed_blunders_for_persona(persona))
         # call engine_move multiple times and observe budget change

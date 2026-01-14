@@ -4,6 +4,7 @@ let moveInFlight = false;
 let pendingPromotion = null; // { source, target, fromPiece, prevFen }
 let gameOver = false;
 let autoPgnSaved = false;
+let lastFinalPgn = null;
 // `playEngine` tracks whether a game (engine play) is active
 let playEngine = false;
 let freeBoardMode = false;
@@ -11,17 +12,93 @@ let selectedPiece = null; // like 'wK' or 'bq'
 // saved game FEN when entering Free Board tab so we can restore later
 let savedGameFenBeforeFree = null;
 
+// Expose UI state setter globally so top-level functions can call it
+let setUIState = null;
+
+// Move frequently-used helpers to top-level so they are not hidden in the load handler.
+/**
+ * BOT ARCHITECTURE:
+ * 1. THE BASE: 'skill' and 'time' set the UCI engine's hard limits (Elo/Depth).
+ * 2. THE PERSONA: The 'name' (e.g. 'Grasshopper') is sent to the server.
+ *    The server uses this name to apply a specific probability curve to move selection
+ *    (e.g., favoring blunders vs. best moves).
+ */
+// Bot profiles used by applyBotProfile — single source of truth for persona -> engine params
+const botProfiles = {
+  'Grasshopper': { skill: 0, time: 0.1 },
+  'Student':     { skill: 5, time: 0.5 },
+  'Adept':       { skill: 10, time: 1.0 },
+  'Ninja':       { skill: 15, time: 2.0 },
+  'Sensei':      { skill: 20, time: 3.0 }
+};
+
+function applyBotProfile(name) {
+  // Minimal helper: return the profile object for a persona name.
+  // DOM updates are intentionally removed — `getEngineParams` should drive engine settings.
+  if (!name) return null;
+  return botProfiles[name] || null;
+}
+
 // Guard to prevent concurrent engine requests and UI desync
 let engineBusy = false;
 
 function setEngineBusyState(b) {
   engineBusy = !!b;
   try {
-    const playBtn = document.getElementById('play-engine-btn'); if (playBtn) playBtn.disabled = engineBusy;
+    // Do NOT disable the play/end button here — it must remain clickable to end games.
     const persona = document.getElementById('engine-persona'); if (persona) persona.disabled = engineBusy;
     const skill = document.getElementById('engine-skill'); if (skill) skill.disabled = engineBusy;
     const time = document.getElementById('engine-time'); if (time) time.disabled = engineBusy;
   } catch (e) { /* ignore UI toggles failing */ }
+}
+
+// Update player/opponent display elements (kept small and defensive).
+function updatePlayersDisplay() {
+  try {
+    const pnameEl = document.getElementById('player-name');
+    const oppEl = document.getElementById('engine-persona');
+    const personaIndicator = document.getElementById('persona-indicator');
+    const playerLabel = document.getElementById('player-label');
+    const opponentLabel = document.getElementById('opponent-label');
+
+    const playerName = (pnameEl && pnameEl.value) ? pnameEl.value : 'Player';
+    const personaName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : '';
+
+    if (personaIndicator) personaIndicator.textContent = `Persona: ${personaName || '(none)'}`;
+    if (playerLabel) playerLabel.textContent = playerName;
+    if (opponentLabel) opponentLabel.textContent = (oppEl && oppEl.value) ? oppEl.value : (playEngine ? 'Engine' : 'Opponent');
+  } catch (e) { /* defensive no-op */ }
+}
+
+// Simple theme applier (kept defensive). Placed top-level so callers in init can use it.
+function applyTheme(name) {
+  try {
+    if (!name) return;
+    const doc = document.documentElement;
+    doc.setAttribute('data-theme', name);
+    // update an optional theme icon/button for feedback
+    const themeIcon = document.getElementById('theme-icon');
+    if (themeIcon) themeIcon.textContent = (name === 'dark') ? '🌙' : '☀️';
+  } catch (e) {
+    /* ignore theme apply failures */
+  }
+}
+
+// Centralized engine parameter extraction.
+// Returns `{ engine_time, engine_skill, engine_persona }` with sensible fallbacks.
+function getEngineParams() {
+  try {
+    const personaName = (document.getElementById('engine-persona')?.value || '').trim();
+    const profile = (personaName && botProfiles[personaName]) ? botProfiles[personaName] : botProfiles['Student'];
+    return {
+      engine_persona: personaName,
+      engine_skill: profile.skill,
+      engine_time: profile.time
+    };
+  } catch (e) {
+    console.warn('getEngineParams failed', e);
+    return { engine_persona: '', engine_skill: 5, engine_time: 0.5 };
+  }
 }
 
 // Shared DOM element references (initialized on window load)
@@ -269,23 +346,7 @@ async function copyFenToClipboard(fen) {
   }
 }
 
-function updateCapturedFromFens(prevFen, newFen) {
-  if (!prevFen || !newFen) return;
-  const prev = fenPieceCounts(prevFen);
-  const now = fenPieceCounts(newFen);
-  const types = ['p','r','n','b','q','k'];
-  for (const t of types) {
-    const decW = (prev.w[t]||0) - (now.w[t]||0);
-    if (decW > 0) {
-      for (let i=0;i<decW;i++) capturedByBlack.push(t);
-    }
-    const decB = (prev.b[t]||0) - (now.b[t]||0);
-    if (decB > 0) {
-      for (let i=0;i<decB;i++) capturedByWhite.push(t);
-    }
-  }
-  renderCapturedTrays();
-}
+
 
 function setFen(fen, pushHistory = false) {
   if (!fen) return;
@@ -313,7 +374,7 @@ function setFen(fen, pushHistory = false) {
 
   game.load(fen);
   board.position(fen);
-  document.getElementById('fen').textContent = fen;
+  const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = fen;
   updateResultIndicator();
   // Check if this position is terminal and auto-save if enabled
   try { maybeTriggerAutoSave(); } catch (e) { }
@@ -417,41 +478,16 @@ function updateResultIndicator() {
   // Clear by default
   el.textContent = '';
   el.classList.remove('result-win', 'result-draw');
-
   try {
-    // If checkmate, the side NOT to move is the winner
-    if (game.in_checkmate && game.in_checkmate()) {
-      const winner = game.turn() === 'w' ? 'Black' : 'White';
-      el.textContent = `${winner} wins (checkmate)`;
-      el.classList.remove('result-win', 'result-draw');
+    const s = getLocalGameStatus();
+    if (!s || !s.over) return;
+    // display message and classes consistently
+    el.textContent = s.resultText || '';
+    el.classList.remove('result-win', 'result-draw');
+    if (s.result && (s.result === '1-0' || s.result === '0-1')) {
       el.classList.add('result-win');
-      return;
-    }
-
-    // Draw conditions
-    if (game.in_stalemate && game.in_stalemate()) {
-      el.textContent = 'Draw (stalemate)';
-      el.classList.remove('result-win', 'result-draw');
+    } else {
       el.classList.add('result-draw');
-      return;
-    }
-    if (game.in_threefold_repetition && game.in_threefold_repetition()) {
-      el.textContent = 'Draw (threefold repetition)';
-      el.classList.remove('result-win', 'result-draw');
-      el.classList.add('result-draw');
-      return;
-    }
-    if (game.insufficient_material && game.insufficient_material()) {
-      el.textContent = 'Draw (insufficient material)';
-      el.classList.remove('result-win', 'result-draw');
-      el.classList.add('result-draw');
-      return;
-    }
-    if (game.in_draw && game.in_draw()) {
-      el.textContent = 'Draw';
-      el.classList.remove('result-win', 'result-draw');
-      el.classList.add('result-draw');
-      return;
     }
   } catch (e) {
     console.warn('Result indicator check failed', e);
@@ -463,25 +499,10 @@ async function maybeTriggerAutoSave() {
   if (autoPgnSaved) return;
   if (!game) return;
   try {
-    let terminal = false;
-    let result = '*';
-    let resultText = '';
-    if (game.in_checkmate && game.in_checkmate()) {
-      terminal = true;
-      const winner = game.turn() === 'w' ? 'Black' : 'White';
-      result = winner === 'White' ? '1-0' : '0-1';
-      resultText = `${winner} wins (checkmate)`;
-    } else if (game.in_stalemate && game.in_stalemate()) {
-      terminal = true; result = '1/2-1/2'; resultText = 'Draw (stalemate)';
-    } else if (game.in_threefold_repetition && game.in_threefold_repetition()) {
-      terminal = true; result = '1/2-1/2'; resultText = 'Draw (threefold repetition)';
-    } else if (game.insufficient_material && game.insufficient_material()) {
-      terminal = true; result = '1/2-1/2'; resultText = 'Draw (insufficient material)';
-    } else if (game.in_draw && game.in_draw()) {
-      terminal = true; result = '1/2-1/2'; resultText = 'Draw';
-    }
-
-    if (!terminal) return;
+    const s = getLocalGameStatus();
+    if (!s || !s.over) return;
+    const result = s.result || '*';
+    const resultText = s.resultText || '';
 
     // Compose payload using current UI values
     const userSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
@@ -489,22 +510,8 @@ async function maybeTriggerAutoSave() {
     const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
     const engineFlag = !!playEngine;
 
-    // Auto-save PGN (fire-and-forget) and mark saved when successful
-    try {
-      const r = await fetch('/api/save_pgn', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ result, user_side: userSide, user_name: userName, opponent_name: opponentName, engine: engineFlag })
-      });
-      const j = await r.json();
-      if (j && j.pgn_file) {
-        autoPgnSaved = true;
-        setStatus('Auto-saved PGN: ' + j.pgn_file);
-      }
-    } catch (e) {
-      // ignore network errors for auto-save
-    }
-
-    // End the game: always mark game over and stop engine play, but keep board as final position.
+    // Do not auto-generate PGN here; the server is now authoritative and will
+    // return a final PGN inside the move/engine responses when the game ends.
     try {
       try { setPlayEngine(false); } catch (e) { /* ignore */ }
       gameOver = true;
@@ -569,23 +576,7 @@ async function postMove(uci) {
   }
 
   const engine = playEngine || false;
-  const engineTime = parseFloat(document.getElementById('engine-time')?.value || '0.1');
-  // Determine engine skill: prefer slider value; fall back to persona profile skill when slider missing/invalid
-  const enginePersona = (document.getElementById('engine-persona')?.value || '').trim();
-  let engineSkill = NaN;
-  try {
-    const raw = document.getElementById('engine-skill')?.value;
-    engineSkill = parseInt(typeof raw !== 'undefined' && raw !== null ? raw : NaN, 10);
-  } catch (e) { engineSkill = NaN; }
-  if (isNaN(engineSkill)) {
-    try {
-      if (typeof botProfiles !== 'undefined' && enginePersona && botProfiles[enginePersona] && typeof botProfiles[enginePersona].skill === 'number') {
-        engineSkill = botProfiles[enginePersona].skill;
-      } else {
-        engineSkill = 1; // sensible default
-      }
-    } catch (e) { engineSkill = 1; }
-  }
+  const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
   const payload = { uci, engine_reply: engine, engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
   console.debug('postMove payload', payload);
   // If this move requests an engine reply, ensure we don't start another engine request
@@ -629,23 +620,7 @@ async function postEngineMove() {
     console.debug('postEngineMove refused: freeBoardMode active');
     return null;
   }
-  const engineTime = parseFloat(document.getElementById('engine-time')?.value || '0.1');
-  // Determine engine skill for engine-move request using same fallback logic
-  const enginePersona = (document.getElementById('engine-persona')?.value || '').trim();
-  let engineSkill = NaN;
-  try {
-    const raw = document.getElementById('engine-skill')?.value;
-    engineSkill = parseInt(typeof raw !== 'undefined' && raw !== null ? raw : NaN, 10);
-  } catch (e) { engineSkill = NaN; }
-  if (isNaN(engineSkill)) {
-    try {
-      if (typeof botProfiles !== 'undefined' && enginePersona && botProfiles[enginePersona] && typeof botProfiles[enginePersona].skill === 'number') {
-        engineSkill = botProfiles[enginePersona].skill;
-      } else {
-        engineSkill = 1;
-      }
-    } catch (e) { engineSkill = 1; }
-  }
+  const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
   const payload = { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
   console.debug('postEngineMove payload', payload);
   if (engineBusy) {
@@ -710,38 +685,39 @@ function showPromotionModal(color) {
   });
 }
 
-async function onDrop(source, target, piece, newPos, oldPos, orientation) {
-  console.log('ON DROP HANDLER ACTIVE', source, target, piece);
-  // Block user moves while an engine request is in flight to avoid UI/server desync
-  if (engineBusy && !freeBoardMode) { setStatus('Engine busy — try again'); return 'snapback'; }
-  // Free-board editing: allow dragging pieces freely and removing to offboard
-  if (freeBoardMode) {
-    try {
-      const pos = board.position(); // object mapping
-      if (target === 'offboard') {
-        // remove piece from source
-        delete pos[source];
-        board.position(pos);
-        const fen = rebuildGameFromPosition(pos);
-        await copyFenToClipboard(fen);
-        setStatus('Piece removed (free board) — FEN copied');
-        return;
-      }
-      if (source === target) return; // no-op
-      // place the dragged piece onto target square
-      pos[target] = piece;
-      // if source was from board (not offboard) and moving, clear source
-      if (oldPos && oldPos[source]) delete pos[source];
+// Handle piece drops while in Free Board edit mode.
+async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
+  try {
+    const pos = board.position(); // object mapping
+    if (target === 'offboard') {
+      // remove piece from source
+      delete pos[source];
       board.position(pos);
       const fen = rebuildGameFromPosition(pos);
       await copyFenToClipboard(fen);
-      setStatus('Piece placed (free board) — FEN copied');
+      setStatus('Piece removed (free board) — FEN copied');
       return;
-    } catch (e) {
-      console.warn('Free-board drop failed', e);
-      return rejectMove('No move');
     }
+    if (source === target) return; // no-op
+    // place the dragged piece onto target square
+    pos[target] = piece;
+    // if source was from board (not offboard) and moving, clear source
+    if (oldPos && oldPos[source]) delete pos[source];
+    board.position(pos);
+    const fen = rebuildGameFromPosition(pos);
+    await copyFenToClipboard(fen);
+    setStatus('Piece placed (free board) — FEN copied');
+    return;
+  } catch (e) {
+    console.warn('Free-board drop failed', e);
+    return rejectMove('No move');
   }
+}
+
+// Handle piece drops during a live game (legal move checks, promotions, submitUci)
+function handleGameDrop(source, target, piece) {
+  // Block user moves while an engine request is in flight to avoid UI/server desync
+  if (engineBusy && !freeBoardMode) { setStatus('Engine busy — try again'); return 'snapback'; }
 
   if (target === 'offboard' || source === target) return rejectMove('No move');
 
@@ -772,7 +748,6 @@ async function onDrop(source, target, piece, newPos, oldPos, orientation) {
   // Promotion: open modal, but onDrop MUST return immediately
   if (willPromote) {
     pendingPromotion = { source, target, fromPiece, prevFen };
-
 
     showPromotionModal(fromPiece.color).then(promotion => {
       const p = pendingPromotion;
@@ -815,6 +790,13 @@ async function onDrop(source, target, piece, newPos, oldPos, orientation) {
   return 'snapback';
 }
 
+async function onDrop(source, target, piece, newPos, oldPos, orientation) {
+  if (freeBoardMode) {
+    return handleFreeBoardDrop(source, target, piece, newPos, oldPos);
+  }
+  return handleGameDrop(source, target, piece);
+}
+
 function submitUci(uci, prevFen) {
   moveInFlight = true;
   setStatus('Sending move: ' + uci);
@@ -835,18 +817,34 @@ function submitUci(uci, prevFen) {
       let msg = 'Move played: ' + uci;
       if (resp.engine_reply) msg += ' | Engine: ' + resp.engine_reply;
       setStatus(msg);
+
+      // If server reports game end, use the canonical PGN returned once
+      if (resp.game_over) {
+        gameOver = true;
+        lastFinalPgn = resp.pgn || null;
+        const resultText = resp.reason ? `${resp.reason} — ${resp.result}` : resp.result || '';
+        setStatus('Game ended: ' + resultText);
+        // Update result indicator and switch to RESULT UI
+        const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
+        try { setPlayEngine(false); } catch (e) {}
+        setUIState('RESULT', { result: resp.result || '', reason: resp.reason || '', pgn: resp.pgn || '' });
+      }
       return;
     }
 
     // Defensive fallback
     setFen(prevFen, false);
     setStatus('Move error: no FEN returned');
-  }).catch(() => {
+  }).catch((err) => {
     moveInFlight = false;
-    board.position(prevFen);
-    game.load(prevFen);
-    document.getElementById('fen').textContent = prevFen;
-    setStatus('Network error (move not sent)');
+    // log the full error for debugging
+    console.error('submitUci error', err);
+    try { board.position(prevFen); } catch (e) {}
+    try { game.load(prevFen); } catch (e) {}
+    const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = prevFen;
+    // Surface the error message to the user when available
+    const msg = (err && err.message) ? ('Network error: ' + err.message) : 'Network error (move not sent)';
+    setStatus(msg);
   });
 }
 
@@ -861,6 +859,11 @@ function onDragStart(source, piece, position, orientation) {
     if (moveInFlight || pendingPromotion) return false;
     return true;
   }
+
+  // Only allow drags when UI is in IN_GAME state
+  try {
+    if (typeof uiState !== 'undefined' && uiState !== 'IN_GAME') return false;
+  } catch (e) { }
 
   if (moveInFlight || pendingPromotion || gameOver) return false;
   if (!pieceColor) return false;
@@ -922,15 +925,7 @@ window.addEventListener('load', async () => {
     }
   } catch (e) { /* ignore localStorage errors */ }
   if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) {} });
-  const playersDisplay = document.getElementById('players-display');
-  function updatePlayersDisplay() {
-    if (!playersDisplay) return;
-    const humanIsWhite = (playerSelect && playerSelect.value === 'white');
-    const oppName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
-    const whiteName = humanIsWhite ? 'Player' : oppName;
-    const blackName = humanIsWhite ? oppName : 'Player';
-    playersDisplay.textContent = `White: ${whiteName}  |  Black: ${blackName}`;
-  }
+  // playersDisplay and updatePlayersDisplay moved to top-level
   // update display when names or side change
   if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', updatePlayersDisplay);
   // initial render of the players mapping
@@ -1013,7 +1008,9 @@ window.addEventListener('load', async () => {
     activateTab('game');
   } catch (e) { console.warn('tab init failed', e); }
     // Tools card wiring: open simulator in new tab and open tests folder via API
-    try {
+    // Skip tools and free-board UI in V1 mode
+    if (!window.V1_MODE) {
+      try {
       const launchBtn = document.getElementById('launch-simulator');
       if (launchBtn) launchBtn.addEventListener('click', ()=> window.open('/test_personas', '_blank'));
       const openTests = document.getElementById('open-tests-folder');
@@ -1024,7 +1021,7 @@ window.addEventListener('load', async () => {
           alert('Open folder action triggered (if supported on this OS)');
         } catch (e) { alert('Open folder not supported: '+e); }
       });
-    } catch(e) { console.warn('tools wiring failed', e); }
+      } catch(e) { console.warn('tools wiring failed', e); }
     // Tools panel wiring: persona tuning, engine info, simulator batch
     try {
       async function getJson(url){ const r=await fetch(url); return r.json(); }
@@ -1314,28 +1311,25 @@ window.addEventListener('load', async () => {
           // confirm with user before replacing current game
           if (!confirm('Start game from the current free-board position?')) return;
           const pos = board.position();
-          // build board part of FEN from pos (ranks 8..1)
-          const files = ['a','b','c','d','e','f','g','h'];
-          const ranks = ['8','7','6','5','4','3','2','1'];
-          const rows = [];
-          for (const r of ranks) {
-            let empty = 0;
-            let row = '';
-            for (const f of files) {
-              const sq = f + r;
-              const pc = pos[sq];
-              if (!pc) { empty += 1; continue; }
-              if (empty > 0) { row += String(empty); empty = 0; }
-              // pc like 'wP' or 'bq'
-              const color = pc[0] === 'w' ? pc[1].toUpperCase() : pc[1].toLowerCase();
-              row += color;
-            }
-            if (empty > 0) row += String(empty);
-            rows.push(row);
+          // Prefer using the game's FEN if available; otherwise rebuild from board position.
+          let fen = null;
+          try {
+            if (game && typeof game.fen === 'function') fen = game.fen();
+          } catch (e) { fen = null; }
+          if (!fen) {
+            try { fen = rebuildGameFromPosition(pos); } catch (e) { fen = null; }
           }
-          const boardPart = rows.join('/');
+          // Respect chosen side to move from the UI (override if necessary)
           const toMove = (startSide && startSide.value === 'black') ? 'b' : 'w';
-          const fen = `${boardPart} ${toMove} - - 0 1`;
+          try {
+            if (fen) {
+              const parts = fen.split(' ');
+              if (parts.length >= 2) {
+                parts[1] = toMove;
+                fen = parts.join(' ');
+              }
+            }
+          } catch (e) { /* ignore */ }
 
           // preserve captured-piece counts (do not clear trays)
           // set the FEN locally and record in history
@@ -1362,7 +1356,7 @@ window.addEventListener('load', async () => {
           if (playerSelect && startSide) {
             const color = (startSide.value === 'black') ? 'black' : 'white';
             try { playerSelect.value = color; localStorage.setItem('playerColor', color); } catch (e) {}
-            try { if (board && typeof board.orientation === 'function') board.orientation(color); } catch (e) {}
+            try { setBoardOrientation(color); } catch (e) {}
           }
 
           // Start engine-enabled play from this position without resetting server position
@@ -1382,19 +1376,94 @@ window.addEventListener('load', async () => {
     // Tray update controls
     // Manual tray update UI removed; captured trays update automatically when FEN changes
   } catch (e) { console.warn('free-board wireup failed', e); }
+}
   // Initialize game and history from server state
   game.load(init.fen);
   setFen(init.fen, true);
   setStatus(`${game.turn() === 'w' ? 'White' : 'Black'} to move`);
+
+  // UI state: 'SETUP' | 'IN_GAME' | 'RESULT'
+  let uiState = 'SETUP';
+  let lastFinalPgn = null;
+
+  setUIState = function(state, info) {
+    uiState = state;
+    const setup = document.getElementById('setup-panel');
+    const ingame = document.getElementById('in-game-panel');
+    const result = document.getElementById('result-panel');
+    try {
+      if (setup) setup.style.display = (state === 'SETUP') ? 'block' : 'none';
+      if (ingame) ingame.style.display = (state === 'IN_GAME') ? 'block' : 'none';
+      if (result) result.style.display = (state === 'RESULT') ? 'block' : 'none';
+    } catch (e) {}
+
+    // Removed flip-on-start control (not used)
+
+    // Disable other setup controls while in game
+    try {
+      const persona = document.getElementById('engine-persona'); if (persona) persona.disabled = (state !== 'SETUP');
+      const pcolor = document.getElementById('player-color'); if (pcolor) pcolor.disabled = (state !== 'SETUP');
+      const opp = document.getElementById('engine-persona'); if (opp) opp.disabled = (state !== 'SETUP');
+    } catch (e) {}
+
+    // Update result banner if provided
+    if (state === 'RESULT' && info) {
+      lastFinalPgn = info.pgn || null;
+      const banner = document.getElementById('result-banner');
+      const reasonEl = document.getElementById('result-reason');
+      if (banner) banner.textContent = info.result || '';
+      if (reasonEl) reasonEl.textContent = info.reason || '';
+    }
+  }
+
+  // Wire setup and control buttons
+  try {
+    const pname = document.getElementById('player-name');
+    const opp = document.getElementById('engine-persona');
+    const endBtn = document.getElementById('end-game-btn');
+    const downloadFinal = document.getElementById('download-final-pgn');
+    const newGameBtn = document.getElementById('new-game-btn');
+
+    if (pname) pname.value = localStorage.getItem('playerName') || pname.value || '';
+
+    // Start Game wiring moved to unified `startGame()`; the setup panel Start button was removed.
+
+    if (endBtn) endBtn.addEventListener('click', async () => {
+      // Delegate to existing resign flow which will return PGN/result
+      await doResign();
+    });
+
+    if (downloadFinal) downloadFinal.addEventListener('click', async () => {
+      try {
+        if (lastFinalPgn) {
+          const blob = new Blob([lastFinalPgn], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = 'game.pgn'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+        } else {
+          setStatus('No PGN available');
+        }
+      } catch (e) { setStatus('Download failed'); }
+    });
+
+    if (newGameBtn) newGameBtn.addEventListener('click', async () => {
+      try {
+        const r = await postReset();
+        if (r && r.fen) {
+          historyFens = []; historyIndex = -1; setFen(r.fen, true); setUIState('SETUP'); gameOver = false; lastFinalPgn = null; setStatus('Ready for new game');
+        } else setStatus('Reset failed');
+      } catch (e) { setStatus('Network error: reset failed'); }
+    });
+  } catch (e) { /* ignore wiring errors */ }
+
+  // start in SETUP
+  setUIState('SETUP');
 
   // Wire up player color selector to persist and apply orientation
   if (playerSelect) {
     playerSelect.addEventListener('change', () => {
       const v = playerSelect.value === 'black' ? 'black' : 'white';
       try { localStorage.setItem('playerColor', v); } catch (e) { /* ignore */ }
-      if (board && typeof board.orientation === 'function') {
-        try { board.orientation(v); } catch (e) { console.warn('Failed to set board orientation', e); }
-      }
+      try { setBoardOrientation(v); } catch (e) { console.warn('Failed to set board orientation', e); }
       try { if (typeof updatePlayersDisplay === 'function') updatePlayersDisplay(); } catch (e) {}
     });
   }
@@ -1439,7 +1508,18 @@ window.addEventListener('load', async () => {
               historyFens = [];
               historyIndex = -1;
               setFen(r2.fen, true);
-              setStatus('Engine played first move');
+              // If server reports game end, finalize locally as well
+              if (r2.game_over) {
+                gameOver = true;
+                lastFinalPgn = r2.pgn || null;
+                try { setPlayEngine(false); } catch (e) { /* ignore */ }
+                const resultText = r2.reason ? `${r2.reason} — ${r2.result}` : (r2.result || '');
+                setStatus('Game ended: ' + resultText);
+                const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
+                setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
+              } else {
+                setStatus('Engine played first move');
+              }
             } else {
               setStatus('Engine move failed');
             }
@@ -1481,36 +1561,38 @@ window.addEventListener('load', async () => {
     });
   }
 
-  // Resign logic: extracted to `doResign()` and invoked by the play button when acting as Resign
+  // End-game logic: extracted to `doResign()` and invoked by the play button when acting as End Game
   async function doResign() {
-    const ok = confirm('Are you sure you want to resign this game?');
+    const ok = confirm('Are you sure you want to end this game?');
     if (!ok) return;
     // Determine which side the human is playing from UI
     const playerSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
     // Capture engine state before stopping play
     const engineFlag = !!playEngine;
-    const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (engineFlag ? 'Engine' : 'Opponent');
+      const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (engineFlag ? 'Engine' : 'Opponent');
     try {
       try { setPlayEngine(false); } catch (e) { /* ignore if not initialized yet */ }
 
-      const payload = { resigned_side: playerSide, user_side: playerSide, user_name: 'Player', opponent_name: opponentName, engine: engineFlag };
+      // include player name and opponent preset from UI when available
+      const playerNameEl = document.getElementById('player-name');
+      const opponentEl = document.getElementById('engine-persona');
+      const payload = { resigned_side: playerSide, user_side: playerSide, user_name: (playerNameEl && playerNameEl.value) ? playerNameEl.value : 'Player', opponent_name: (opponentEl && opponentEl.value) ? opponentEl.value : opponentName, engine: engineFlag };
       const r = await fetch('/api/resign', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
       });
       const data = await r.json();
-      // Mark game over and show resignation result; keep the final board position as-is
+      // Mark game over and show end result due to resignation; keep the final board position as-is
       gameOver = true;
       autoPgnSaved = !!(data && data.pgn_file);
-      if (data && data.winner) {
-        setStatus(`Resigned — ${data.winner} wins` + (data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
-        const el = document.getElementById('result-indicator'); if (el) el.textContent = `${data.winner} wins (resignation)`;
-      } else {
-        setStatus('Resigned' + (data && data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
-      }
+      const resText = data && data.winner ? `${data.winner} wins (resignation)` : 'Game ended (resignation)';
+      setStatus(resText + (data && data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
+      const el = document.getElementById('result-indicator'); if (el) el.textContent = resText;
+      // switch to RESULT UI and expose PGN
+      setUIState('RESULT', { result: data && data.result ? data.result : '', reason: data && data.reason ? data.reason : 'resign', pgn: data && data.pgn ? data.pgn : '' });
       // Do NOT modify board FEN or clear history here; user may inspect final position or use Reset button.
     } catch (e) {
-      setStatus('Network error: resign failed');
+      setStatus('Network error: end-game failed');
     }
   }
 
@@ -1525,6 +1607,38 @@ window.addEventListener('load', async () => {
       if (resultText.includes('wins')) result = resultText.startsWith('White') ? '1-0' : '0-1';
       if (resultText.includes('Draw')) result = '1/2-1/2';
       try {
+        // If we have a final PGN returned by the server, request the server
+        // to save it to the project `games/` folder (server-side write).
+        if (gameOver && lastFinalPgn) {
+          try {
+            const payload = { pgn_text: lastFinalPgn, result: result, user_side: (playerSelect && playerSelect.value === 'black') ? 'black' : 'white', user_name: 'Player', opponent_name: (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent'), engine: !!playEngine };
+            const r = await fetch('/api/save_pgn', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+            const data = await r.json();
+            if (data && data.pgn_file) {
+              autoPgnSaved = true;
+              setStatus('Saved PGN to server: ' + data.pgn_file);
+              // Also trigger a browser download of the saved file from the server
+              try {
+                const downloadUrl = '/api/download_pgn?filename=' + encodeURIComponent(data.pgn_file);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              } catch (e) {
+                // non-fatal if download fails
+              }
+            } else {
+              setStatus('Server PGN save failed');
+            }
+          } catch (e) {
+            setStatus('Network error: save pgn failed');
+          }
+          return;
+        }
+
+        // Fallback: ask server to save current board PGN (legacy behavior)
         const userSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
         const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
         const payload = { result, user_side: userSide, user_name: 'Player', opponent_name: opponentName, engine: !!playEngine };
@@ -1550,14 +1664,40 @@ window.addEventListener('load', async () => {
   // Keyboard navigation for history (left/right arrows)
   // (Listener already registered on DOMContentLoaded; do not register again)
 
-  // Theme (dark mode) toggle: apply and persist preference
-  function applyTheme(theme) {
-    const doc = document.documentElement;
-    doc.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
-    const btn = document.getElementById('theme-toggle');
-    if (btn) {
-      btn.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
-      btn.setAttribute('aria-pressed', theme === 'dark');
+  // Theme helpers moved to top-level: applyTheme()
+
+  // Centralized local game status helper.
+  // Returns: { over: boolean, result: '1-0'|'0-1'|'1/2-1/2'|'*', resultText: string }
+  function getLocalGameStatus() {
+    try {
+      if (!game) return { over: false, result: '*', resultText: '' };
+      // Check checkmate first
+      if (game.in_checkmate && game.in_checkmate()) {
+        const winner = game.turn() === 'w' ? 'Black' : 'White';
+        const result = winner === 'White' ? '1-0' : '0-1';
+        const resultText = `${winner} wins (checkmate)`;
+        return { over: true, result, resultText };
+      }
+      // Stalemate
+      if (game.in_stalemate && game.in_stalemate()) {
+        return { over: true, result: '1/2-1/2', resultText: 'Draw (stalemate)' };
+      }
+      // Threefold repetition
+      if (game.in_threefold_repetition && game.in_threefold_repetition()) {
+        return { over: true, result: '1/2-1/2', resultText: 'Draw (threefold repetition)' };
+      }
+      // Insufficient material
+      if (game.insufficient_material && game.insufficient_material()) {
+        return { over: true, result: '1/2-1/2', resultText: 'Draw (insufficient material)' };
+      }
+      // Generic draw (50-move rule, etc.)
+      if (game.in_draw && game.in_draw()) {
+        return { over: true, result: '1/2-1/2', resultText: 'Draw' };
+      }
+      return { over: false, result: '*', resultText: '' };
+    } catch (e) {
+      console.warn('getLocalGameStatus failed', e);
+      return { over: false, result: '*', resultText: '' };
     }
   }
 
@@ -1612,20 +1752,7 @@ window.addEventListener('load', async () => {
     });
   }
 
-  // Bot profiles
-  const botProfiles = {
-    'Grasshopper': { skill: 0, fast: 0.10, deep: 0.60 },
-    'Student':     { skill: 1, fast: 0.12, deep: 0.80 },
-    'Adept':       { skill: 3, fast: 0.20, deep: 1.00 },
-    'Ninja':       { skill: 5, fast: 0.30, deep: 1.50 },
-    'Sensei':      { skill: 8, fast: 0.50, deep: 2.50 }
-  };
-
-  function applyBotProfile(name) {
-    if (!name || !botProfiles[name]) return;
-    const p = botProfiles[name];
-    if (skillSlider) { skillSlider.value = p.skill; skillVal.textContent = p.skill; }
-  }
+  // Bot/profile helpers moved to top-level: botProfiles and applyBotProfile()
 
   // Persona select drives bot profile; opponent-name remains for display only
   if (enginePersonaSelect) {
@@ -1644,7 +1771,7 @@ window.addEventListener('load', async () => {
     // when a game is active, persona cannot be changed
     if (enginePersonaSelect) enginePersonaSelect.disabled = playEngine;
     if (playBtn) {
-      playBtn.textContent = playEngine ? 'Resign' : 'Start Game';
+      playBtn.textContent = playEngine ? 'End Game' : 'Start Game';
       try {
         playBtn.classList.remove('play-start','play-resign');
         playBtn.classList.add(playEngine ? 'play-resign' : 'play-start');
@@ -1664,7 +1791,17 @@ window.addEventListener('load', async () => {
               historyIndex = -1;
               setFen(r2.fen, true);
               try { renderCapturedTrays(); } catch (e) { }
-              setStatus('Engine played first move — Game started');
+              if (r2.game_over) {
+                gameOver = true;
+                lastFinalPgn = r2.pgn || null;
+                try { setPlayEngine(false); } catch (e) { /* ignore */ }
+                const resultText = r2.reason ? `${r2.reason} — ${r2.result}` : (r2.result || '');
+                setStatus('Game ended: ' + resultText);
+                const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
+                setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
+              } else {
+                setStatus('Engine played first move — Game started');
+              }
             } else {
               setStatus('Engine failed to play first move');
             }
@@ -1687,7 +1824,17 @@ window.addEventListener('load', async () => {
                   historyIndex = -1;
                   setFen(r2.fen, true);
                   try { renderCapturedTrays(); } catch (e) { }
-                  setStatus('Engine played first move — Game started');
+                  if (r2.game_over) {
+                      gameOver = true;
+                      lastFinalPgn = r2.pgn || null;
+                      try { setPlayEngine(false); } catch (e) { /* ignore */ }
+                      const resultText = r2.reason ? `${r2.reason} — ${r2.result}` : (r2.result || '');
+                      setStatus('Game ended: ' + resultText);
+                      const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
+                      setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
+                  } else {
+                    setStatus('Engine played first move — Game started');
+                  }
                 } else {
                   setStatus('Engine failed to play first move');
                 }
@@ -1704,6 +1851,69 @@ window.addEventListener('load', async () => {
     }
   }
 
+  // Centralized board orientation helper — single source of truth
+  function setBoardOrientation(arg) {
+    try {
+      if (!board || typeof board.orientation !== 'function') return;
+      if (typeof arg === 'string') {
+        board.orientation(arg);
+      } else if (typeof arg === 'boolean') {
+        // boolean true means apply player's chosen color as orientation
+        const v = (playerSelect && playerSelect.value) ? playerSelect.value : 'white';
+        board.orientation(v);
+      } else {
+        // fallback: apply player's chosen color
+        const v = (playerSelect && playerSelect.value) ? playerSelect.value : 'white';
+        board.orientation(v);
+      }
+      console.debug('setBoardOrientation', { playerColor: playerSelect && playerSelect.value, arg });
+    } catch (e) { console.warn('setBoardOrientation failed', e); }
+  }
+
+  // Single entry point to start a game — reads current setup and begins either
+  // a Human-vs-Human (server reset) game or an Engine game (persona-driven).
+  async function startGame() {
+    try {
+      // persist player name if present
+      try { const pname = document.getElementById('player-name'); if (pname) localStorage.setItem('playerName', pname.value || 'Player'); } catch (e) {}
+
+      const opp = document.getElementById('engine-persona');
+      const oppVal = opp ? opp.value : null;
+
+      // If opponent is Human, start a normal server-backed game (engine disabled)
+      if (oppVal === 'Human') {
+        try {
+          const r = await postReset();
+          if (r && r.fen) {
+            historyFens = []; historyIndex = -1; setFen(r.fen, true);
+            setUIState('IN_GAME');
+            setPlayEngine(false);
+            setStatus('Game started (Human opponent)');
+          } else {
+            setStatus('Failed to start game');
+          }
+        } catch (e) { setStatus('Network error starting game'); }
+        console.debug('startGame', { playerColor: playerSelect && playerSelect.value, engineEnabled: false, persona: enginePersonaSelect && enginePersonaSelect.value, flipped: false });
+        return;
+      }
+
+      // Otherwise treat opponent preset as an engine persona; apply preset to persona selector
+      try {
+        if (enginePersonaSelect && oppVal) {
+          // If preset is one of the persona names, apply it
+          if (enginePersonaSelect.querySelector('option[value="' + oppVal + '"]')) enginePersonaSelect.value = oppVal;
+          try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) {}
+          // apply bot profile so skill slider reflects preset
+          try { applyBotProfile(enginePersonaSelect.value); } catch (e) {}
+        }
+      } catch (e) { /* ignore */ }
+
+      // Start engine play (setPlayEngine will reset server and handle first move if needed)
+      try { setPlayEngine(true); } catch (e) { setStatus('Failed to start engine mode'); }
+      console.debug('startGame', { playerColor: playerSelect && playerSelect.value, engineEnabled: true, persona: enginePersonaSelect && enginePersonaSelect.value, flipped: false });
+    } catch (e) { console.error('startGame failed', e); }
+  }
+
     if (playBtn) {
     // ensure button is enabled and wired
     try { playBtn.disabled = false; } catch (e) {}
@@ -1711,10 +1921,10 @@ window.addEventListener('load', async () => {
       console.debug('playBtn clicked — current playEngine=', playEngine);
       try {
         if (!playEngine) {
-          // start the game
-            setPlayEngine(true);
+          // start the game via unified entrypoint
+          await startGame();
         } else {
-          // act as Resign when pressed during an active game
+          // act as End Game when pressed during an active game
           await doResign();
         }
       } catch (e) { console.error('playBtn handler threw', e); }

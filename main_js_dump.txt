@@ -1,0 +1,1043 @@
+let board = null;
+let game = null;
+let moveInFlight = false;
+let pendingPromotion = null; // { source, target, fromPiece, prevFen }
+let gameOver = false;
+let autoPgnSaved = false;
+let lastFinalPgn = null;
+// `playEngine` tracks whether a game (engine play) is active
+let playEngine = false;
+let freeBoardMode = false;
+let selectedPiece = null; // like 'wK' or 'bq'
+// saved game FEN when entering Free Board tab so we can restore later
+let savedGameFenBeforeFree = null;
+
+// Expose UI state setter globally so top-level functions can call it
+let setUIState = null;
+
+// Move frequently-used helpers to top-level so they are not hidden in the load handler.
+// Bot profiles used by applyBotProfile — single source of truth for persona -> engine params
+const botProfiles = {
+	'Grasshopper': { skill: 0, time: 0.1 },
+	'Student':     { skill: 5, time: 0.5 },
+	'Adept':       { skill: 10, time: 1.0 },
+	'Ninja':       { skill: 15, time: 2.0 },
+	'Sensei':      { skill: 20, time: 3.0 }
+};
+
+function applyBotProfile(name) {
+	if (!name || !botProfiles[name]) return;
+	const p = botProfiles[name];
+	// resolve DOM elements on demand (they will exist after load)
+	const skillSlider = document.getElementById('engine-skill');
+	const skillVal = document.getElementById('engine-skill-val');
+	const timeSlider = document.getElementById('engine-time');
+	const timeVal = document.getElementById('engine-time-val');
+	if (skillSlider) { try { skillSlider.value = p.skill; } catch (e){} }
+	if (skillVal) { try { skillVal.textContent = p.skill; } catch (e){} }
+	if (timeSlider) { try { timeSlider.value = p.time; } catch (e){} }
+	if (timeVal) { try { timeVal.textContent = p.time; } catch (e){} }
+}
+
+// Guard to prevent concurrent engine requests and UI desync
+let engineBusy = false;
+
+function setEngineBusyState(b) {
+	engineBusy = !!b;
+	try {
+		// Do NOT disable the play/end button here — it must remain clickable to end games.
+		const persona = document.getElementById('engine-persona'); if (persona) persona.disabled = engineBusy;
+		const skill = document.getElementById('engine-skill'); if (skill) skill.disabled = engineBusy;
+		const time = document.getElementById('engine-time'); if (time) time.disabled = engineBusy;
+	} catch (e) { /* ignore UI toggles failing */ }
+}
+
+// Update player/opponent display elements (kept small and defensive).
+function updatePlayersDisplay() {
+	try {
+		const pnameEl = document.getElementById('player-name');
+		const oppEl = document.getElementById('engine-persona');
+		const personaIndicator = document.getElementById('persona-indicator');
+		const playerLabel = document.getElementById('player-label');
+		const opponentLabel = document.getElementById('opponent-label');
+
+		const playerName = (pnameEl && pnameEl.value) ? pnameEl.value : 'Player';
+		const personaName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : '';
+
+		if (personaIndicator) personaIndicator.textContent = `Persona: ${personaName || '(none)'}`;
+		if (playerLabel) playerLabel.textContent = playerName;
+		if (opponentLabel) opponentLabel.textContent = (oppEl && oppEl.value) ? oppEl.value : (playEngine ? 'Engine' : 'Opponent');
+	} catch (e) { /* defensive no-op */ }
+}
+
+// Simple theme applier (kept defensive). Placed top-level so callers in init can use it.
+function applyTheme(name) {
+	try {
+		if (!name) return;
+		const doc = document.documentElement;
+		doc.setAttribute('data-theme', name);
+		// update an optional theme icon/button for feedback
+		const themeIcon = document.getElementById('theme-icon');
+		if (themeIcon) themeIcon.textContent = (name === 'dark') ? '🌙' : '☀️';
+	} catch (e) {
+		/* ignore theme apply failures */
+	}
+}
+
+// Centralized engine parameter extraction.
+// Returns `{ engine_time, engine_skill, engine_persona }` with sensible fallbacks.
+function getEngineParams() {
+	try {
+		const personaName = (document.getElementById('engine-persona')?.value || '').trim();
+		const profile = (personaName && botProfiles[personaName]) ? botProfiles[personaName] : botProfiles['Student'];
+		return {
+			engine_persona: personaName,
+			engine_skill: profile.skill,
+			engine_time: profile.time
+		};
+	} catch (e) {
+		console.warn('getEngineParams failed', e);
+		return { engine_persona: '', engine_skill: 5, engine_time: 0.5 };
+	}
+}
+
+// Shared DOM element references (initialized on window load)
+let playerSelect = null;
+let enginePersonaSelect = null;
+let playBtn = null;
+
+// Debug/version stamp to detect wrong/old files being loaded in the browser
+console.log('main.js loaded: v1.2 - turn lock + promo modal + dark mode');
+
+function setStatus(msg) {
+	const el = document.getElementById('status');
+	const t = new Date().toLocaleTimeString();
+	const out = `[${t}] ${msg}`;
+	if (el) el.textContent = out;
+	console.log('STATUS:', out);
+}
+
+// History management for FENs (server-authoritative positions)
+let historyFens = [];
+let historyIndex = -1; // points into historyFens
+// Parallel history of SAN moves (each entry is an array of SANs added at that push)
+let historyMoves = []; // array of arrays, e.g. [["e4","e5"], ["Nf3"]]
+// Captured pieces tracked incrementally
+let capturedByWhite = []; // black pieces captured (shown in white tray)
+let capturedByBlack = []; // white pieces captured (shown in black tray)
+// Auto-update trays flag (can be toggled by UI)
+// captured trays always update automatically from FEN; manual controls removed
+
+function flashTrays() {
+	try {
+		const els = document.querySelectorAll('.tray-items');
+		els.forEach(el => {
+			el.classList.remove('tray-flash');
+			// trigger reflow to restart animation
+			// eslint-disable-next-line no-unused-expressions
+			void el.offsetWidth;
+			el.classList.add('tray-flash');
+			setTimeout(() => el.classList.remove('tray-flash'), 500);
+		});
+	} catch (e) { /* ignore */ }
+}
+
+function fenPieceCounts(fen) {
+	const boardPart = fen.split(' ')[0];
+	const rows = boardPart.split('/');
+	const counts = { w: { p:0,r:0,n:0,b:0,q:0,k:0 }, b: { p:0,r:0,n:0,b:0,q:0,k:0 } };
+	for (const r of rows) {
+		for (const ch of r) {
+			if (/[1-8]/.test(ch)) continue;
+			const isUpper = ch === ch.toUpperCase();
+			const color = isUpper ? 'w' : 'b';
+			const t = ch.toLowerCase();
+			if (counts[color][t] !== undefined) counts[color][t] += 1;
+		}
+	}
+	return counts;
+}
+
+// Recompute captured-piece trays from an absolute FEN snapshot.
+// Captured-by-white (pieces shown in white tray) are the black pieces
+// missing from the standard starting set; similarly for captured-by-black.
+function setCapturedFromFen(fen) {
+	try {
+		const counts = fenPieceCounts(fen);
+		const start = { p: 8, r: 2, n: 2, b: 2, q: 1, k: 1 };
+		capturedByWhite = [];
+		capturedByBlack = [];
+
+		// Black pieces missing -> captured by white (show in white tray)
+		for (const t of ['p','r','n','b','q','k']) {
+			const have = (counts.b && counts.b[t]) ? counts.b[t] : 0;
+			const missing = Math.max(0, (start[t] || 0) - have);
+			for (let i = 0; i < missing; i++) capturedByWhite.push(t);
+		}
+
+		// White pieces missing -> captured by black (show in black tray)
+		for (const t of ['p','r','n','b','q','k']) {
+			const have = (counts.w && counts.w[t]) ? counts.w[t] : 0;
+			const missing = Math.max(0, (start[t] || 0) - have);
+			for (let i = 0; i < missing; i++) capturedByBlack.push(t);
+		}
+
+		renderCapturedTrays();
+	} catch (e) {
+		console.warn('setCapturedFromFen failed', e);
+	}
+}
+
+function renderCapturedTrays() {
+	const trayW = document.getElementById('tray-white');
+	const trayB = document.getElementById('tray-black');
+	if (trayW) trayW.innerHTML = '';
+	if (trayB) trayB.innerHTML = '';
+	// Show fixed piece trays (5 pieces each color: P,R,N,B,Q). Click to add in free-board mode.
+	const pieceOrder = ['p','r','n','b','q'];
+
+	// Compute counts from captured arrays (capturedByWhite shows black pieces captured by white)
+	const countsW = { p:0, r:0, n:0, b:0, q:0 };
+	const countsB = { p:0, r:0, n:0, b:0, q:0 };
+	for (const t of capturedByWhite) if (countsW[t] !== undefined) countsW[t]++;
+	for (const t of capturedByBlack) if (countsB[t] !== undefined) countsB[t]++;
+
+	if (trayW) {
+		for (const p of pieceOrder) {
+			const wrapper = document.createElement('span');
+			wrapper.className = 'tray-item';
+			wrapper.style.display = 'inline-flex';
+			wrapper.style.alignItems = 'center';
+			const img = document.createElement('img');
+			// tray-white shows black pieces captured by White, so use black piece images
+			img.src = `/static/img/chesspieces/wikipedia/b${p.toUpperCase()}.png`;
+			img.className = 'captured-piece';
+			img.style.cursor = 'pointer';
+			img.addEventListener('click', async () => {
+				if (!freeBoardMode) return;
+				try {
+					const pos = board.position();
+					const sq = findFirstEmptySquare(pos);
+					if (!sq) { setStatus('No empty square to add piece'); return; }
+					// add a black piece (captured piece shown in white tray is black)
+					pos[sq] = 'b' + p.toUpperCase();
+					board.position(pos);
+					const fen = rebuildGameFromPosition(pos);
+					await copyFenToClipboard(fen);
+					setStatus('Piece added from tray — FEN copied');
+				} catch (e) { console.warn('tray add failed', e); }
+			});
+			wrapper.appendChild(img);
+			const cnt = countsW[p] || 0;
+			if (cnt > 0) {
+				const badge = document.createElement('span');
+				badge.className = 'tray-badge';
+				badge.textContent = String(cnt);
+				wrapper.appendChild(badge);
+			}
+			trayW.appendChild(wrapper);
+		}
+	}
+
+	if (trayB) {
+		for (const p of pieceOrder) {
+			const wrapper = document.createElement('span');
+			wrapper.className = 'tray-item';
+			wrapper.style.display = 'inline-flex';
+			wrapper.style.alignItems = 'center';
+			const img = document.createElement('img');
+			// tray-black shows white pieces captured by Black, so use white piece images
+			img.src = `/static/img/chesspieces/wikipedia/w${p.toUpperCase()}.png`;
+			img.className = 'captured-piece';
+			img.style.cursor = 'pointer';
+			img.addEventListener('click', async () => {
+				if (!freeBoardMode) return;
+				try {
+					const pos = board.position();
+					const sq = findFirstEmptySquare(pos);
+					if (!sq) { setStatus('No empty square to add piece'); return; }
+					// add a white piece (captured piece shown in black tray is white)
+					pos[sq] = 'w' + p.toUpperCase();
+					board.position(pos);
+					const fen = rebuildGameFromPosition(pos);
+					await copyFenToClipboard(fen);
+					setStatus('Piece added from tray — FEN copied');
+				} catch (e) { console.warn('tray add failed', e); }
+			});
+			wrapper.appendChild(img);
+			const cnt = countsB[p] || 0;
+			if (cnt > 0) {
+				const badge = document.createElement('span');
+				badge.className = 'tray-badge';
+				badge.textContent = String(cnt);
+				wrapper.appendChild(badge);
+			}
+			trayB.appendChild(wrapper);
+		}
+	}
+}
+
+function clearCapturedTrays() {
+	capturedByWhite = [];
+	capturedByBlack = [];
+	renderCapturedTrays();
+}
+
+// Rebuild the internal Chess() state from a chessboard.js position object
+function rebuildGameFromPosition(posObj) {
+	try {
+		const b = new Chess();
+		b.clear();
+		for (const sq of Object.keys(posObj)) {
+			const code = posObj[sq]; // like 'wP' or 'bq'
+			if (!code || code.length < 2) continue;
+			const color = code[0] === 'w' ? 'w' : 'b';
+			const p = code[1].toLowerCase();
+			b.put({ type: p, color }, sq);
+		}
+		// replace global game with this position
+		game = b;
+		// update fen display
+		const fenEl = document.getElementById('fen');
+		if (fenEl) fenEl.textContent = game.fen();
+		// update result indicator
+		try { updateResultIndicator(); } catch (e) {}
+		return game.fen();
+	} catch (e) {
+		console.warn('rebuildGameFromPosition failed', e);
+		return null;
+	}
+}
+
+function findFirstEmptySquare(posObj) {
+	const files = ['a','b','c','d','e','f','g','h'];
+	const ranks = ['1','2','3','4','5','6','7','8'];
+	for (let r=0;r<ranks.length;r++){
+		for (let f=0;f<files.length;f++){
+			const s = files[f] + ranks[r];
+			if (!posObj[s]) return s;
+		}
+	}
+	return null;
+}
+
+// Copy a FEN string to the clipboard with a safe fallback
+async function copyFenToClipboard(fen) {
+	if (!fen) return false;
+	try {
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			await navigator.clipboard.writeText(fen);
+			return true;
+		}
+	} catch (e) {
+		console.warn('clipboard API failed', e);
+	}
+	try {
+		const ta = document.createElement('textarea');
+		ta.value = fen;
+		document.body.appendChild(ta);
+		ta.select();
+		const ok = document.execCommand('copy');
+		document.body.removeChild(ta);
+		return !!ok;
+	} catch (e) {
+		console.warn('clipboard fallback failed', e);
+		return false;
+	}
+}
+
+
+
+function setFen(fen, pushHistory = false) {
+	if (!fen) return;
+	// If pushing new history while we're not at the end, truncate future branch
+	if (pushHistory && historyIndex < historyFens.length - 1) {
+		historyFens = historyFens.slice(0, historyIndex + 1);
+		historyMoves = historyMoves.slice(0, historyIndex + 1);
+	}
+
+	if (pushHistory) {
+		// compute SANs from previous fen to this fen (up to 2 plies)
+		const prevFen = historyFens.length ? historyFens[historyIndex] : null;
+		const sanList = computeSanSequence(prevFen, fen);
+
+		historyFens.push(fen);
+		historyMoves.push(sanList || []);
+		historyIndex = historyFens.length - 1;
+		// update captured trays based on fen diff
+		try { setCapturedFromFen(fen); } catch (e) { console.warn('setCapturedFromFen failed', e); }
+	} else if (historyIndex === -1) {
+		// initial load fallback
+		historyFens.push(fen);
+		historyIndex = 0;
+	}
+
+	game.load(fen);
+	board.position(fen);
+	const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = fen;
+	updateResultIndicator();
+	// Check if this position is terminal and auto-save if enabled
+	try { maybeTriggerAutoSave(); } catch (e) { }
+	renderMoveList();
+}
+
+function computeSanSequence(prevFen, newFen) {
+	// Returns array of SAN strings representing the plies that transform prevFen -> newFen
+	if (!prevFen) return null;
+	try {
+		const temp = new Chess();
+		temp.load(prevFen);
+
+		// Try single ply
+		const moves1 = temp.moves({ verbose: true });
+		for (const m1 of moves1) {
+			const t1 = new Chess(); t1.load(prevFen);
+			const applied1 = t1.move({ from: m1.from, to: m1.to, promotion: m1.promotion });
+			if (!applied1) continue;
+			if (t1.fen() === newFen) return [applied1.san];
+
+			// Try second ply
+			const moves2 = t1.moves({ verbose: true });
+			for (const m2 of moves2) {
+				const t2 = new Chess(); t2.load(t1.fen());
+				const applied2 = t2.move({ from: m2.from, to: m2.to, promotion: m2.promotion });
+				if (!applied2) continue;
+				if (t2.fen() === newFen) return [applied1.san, applied2.san];
+			}
+		}
+	} catch (e) {
+		console.warn('SAN compute failed', e);
+	}
+	return null;
+}
+
+function renderMoveList() {
+	// move list UI removed — no-op
+}
+
+// Accordion toggle handlers
+document.addEventListener('DOMContentLoaded', () => {
+	const toggles = document.querySelectorAll('.accordion-toggle');
+	toggles.forEach((btn, idx) => {
+		btn.addEventListener('click', () => {
+			const content = btn.nextElementSibling;
+			if (!content) return;
+			const open = content.classList.contains('open');
+			// close all
+			document.querySelectorAll('.accordion-content').forEach(c => c.classList.remove('open'));
+			if (!open) content.classList.add('open');
+		});
+		// Open first accordion by default
+		if (idx === 0) btn.click();
+	});
+
+	// Arrow key navigation for move history
+	window.addEventListener('keydown', (ev) => {
+		const active = document.activeElement;
+		const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.isContentEditable);
+		if (isInput) return; // don't intercept when typing
+		if (ev.key === 'ArrowLeft') {
+			ev.preventDefault(); goBack();
+		} else if (ev.key === 'ArrowRight') {
+			ev.preventDefault(); goForward();
+		}
+	});
+});
+
+// --- Auto-sync snapshot at session end -------------------------------------------------
+// When the user leaves the page, attempt to tell the server to write a snapshot
+// copy of the served `static/main.js` into the repo root as `main.js.txt`.
+function _syncMainJsSnapshot() {
+	try {
+		const url = '/api/sync_main_js';
+		// Try lightweight beacon first so it works during unload
+		if (navigator && typeof navigator.sendBeacon === 'function') {
+			try { navigator.sendBeacon(url); return; } catch (e) { /* fallthrough */ }
+		}
+		// Fallback to fetch with keepalive where supported
+		try {
+			fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+		} catch (e) { /* ignore */ }
+	} catch (e) { /* ignore */ }
+}
+
+// Prefer beforeunload to capture navigations and tab/window close events
+window.addEventListener('beforeunload', () => {
+	_syncMainJsSnapshot();
+});
+
+// Also send a final attempt on pagehide (better for some browsers)
+window.addEventListener('pagehide', () => {
+	_syncMainJsSnapshot();
+});
+
+
+function updateResultIndicator() {
+	const el = document.getElementById('result-indicator');
+	if (!el || !game) return;
+	// Clear by default
+	el.textContent = '';
+	el.classList.remove('result-win', 'result-draw');
+	try {
+		const s = getLocalGameStatus();
+		if (!s || !s.over) return;
+		// display message and classes consistently
+		el.textContent = s.resultText || '';
+		el.classList.remove('result-win', 'result-draw');
+		if (s.result && (s.result === '1-0' || s.result === '0-1')) {
+			el.classList.add('result-win');
+		} else {
+			el.classList.add('result-draw');
+		}
+	} catch (e) {
+		console.warn('Result indicator check failed', e);
+	}
+}
+
+// If a terminal result is reached, automatically save PGN once.
+async function maybeTriggerAutoSave() {
+	if (autoPgnSaved) return;
+	if (!game) return;
+	try {
+		const s = getLocalGameStatus();
+		if (!s || !s.over) return;
+		const result = s.result || '*';
+		const resultText = s.resultText || '';
+
+		// Compose payload using current UI values
+		const userSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
+		const userName = 'Player';
+		const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
+		const engineFlag = !!playEngine;
+
+		// Do not auto-generate PGN here; the server is now authoritative and will
+		// return a final PGN inside the move/engine responses when the game ends.
+		try {
+			try { setPlayEngine(false); } catch (e) { /* ignore */ }
+			gameOver = true;
+			setStatus('Game ended: ' + resultText);
+			const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
+		} catch (e) {
+			console.warn('Finalizing game end failed', e);
+		}
+
+	} catch (e) {
+		console.warn('auto-save check failed', e);
+	}
+}
+
+function goBack() {
+	if (historyIndex > 0) {
+		historyIndex -= 1;
+		setFen(historyFens[historyIndex], false);
+		setStatus(`Rewind: ${historyIndex}`);
+	} else {
+		setStatus('Already at oldest move');
+	}
+}
+
+function goForward() {
+	if (historyIndex < historyFens.length - 1) {
+		historyIndex += 1;
+		setFen(historyFens[historyIndex], false);
+		setStatus(`Forward: ${historyIndex}`);
+	} else {
+		setStatus('Already at newest move');
+	}
+}
+
+function rejectMove(msg) {
+	setStatus(msg);
+
+	const fen = (document.getElementById('fen')?.textContent || '').trim() || game.fen();
+
+	try {
+		game.load(fen);
+		board.position(fen);
+		// force the renderer to settle after a drag-drop
+		setTimeout(() => board.position(fen), 0);
+	} catch (e) {
+		console.warn('rejectMove reset failed', e);
+	}
+
+	return 'snapback';
+}
+
+async function fetchState() {
+	const r = await fetch('/api/state');
+	return r.json();
+}
+
+async function postMove(uci) {
+	// If we're in free-board (editor) mode, do not submit moves to the live game/server
+	if (freeBoardMode) {
+		console.debug('postMove refused: freeBoardMode active');
+		return Promise.resolve({ ok: false, error: 'free_board_active' });
+	}
+
+	const engine = playEngine || false;
+	const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
+	const payload = { uci, engine_reply: engine, engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
+	console.debug('postMove payload', payload);
+	// If this move requests an engine reply, ensure we don't start another engine request
+	if (payload.engine_reply) {
+		if (engineBusy) {
+			console.debug('postMove: engine busy, skipping engine-backed move request');
+			return Promise.resolve({ ok: false, error: 'engine_busy' });
+		}
+		setEngineBusyState(true);
+		try {
+			const r = await fetch('/api/move', {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify(payload)
+			});
+			return r.json();
+		} catch (e) {
+			throw e;
+		} finally {
+			setEngineBusyState(false);
+		}
+	}
+
+	// No engine reply requested — normal move post
+	const r = await fetch('/api/move', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify(payload)
+	});
+	return r.json();
+}
+
+async function postReset() {
+	const r = await fetch('/api/reset', {method: 'POST'});
+	return r.json();
+}
+
+async function postEngineMove() {
+	// Don't request engine moves while editing positions in free-board mode
+	if (freeBoardMode) {
+		console.debug('postEngineMove refused: freeBoardMode active');
+		return null;
+	}
+	const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
+	const payload = { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
+	console.debug('postEngineMove payload', payload);
+	if (engineBusy) {
+		console.debug('postEngineMove: engineBusy, skipping');
+		return null;
+	}
+	setEngineBusyState(true);
+	try {
+		const r = await fetch('/api/engine_move', {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify(payload)
+		});
+		return r.json();
+	} catch (e) {
+		throw e;
+	} finally {
+		setEngineBusyState(false);
+	}
+}
+
+function showPromotionModal(color) {
+	return new Promise(resolve => {
+		const modal = document.getElementById('promotion-modal');
+		const buttons = modal.querySelectorAll('.promo-btn');
+		const cancel = modal.querySelector('#promo-cancel');
+
+		// populate images for the current color
+		buttons.forEach(b => {
+			const piece = b.getAttribute('data-piece');
+			const img = b.querySelector('.promo-img');
+			if (img) img.src = `/static/img/chesspieces/wikipedia/${color}${piece.toUpperCase()}.png`;
+		});
+
+		function cleanup() {
+			buttons.forEach(b => b.removeEventListener('click', onChoose));
+			cancel.removeEventListener('click', onCancel);
+			document.removeEventListener('keydown', onKey);
+			modal.classList.add('hidden');
+		}
+
+		function onChoose(e) {
+			const p = e.currentTarget.getAttribute('data-piece');
+			cleanup();
+			resolve(p);
+		}
+		function onCancel() {
+			cleanup();
+			resolve(null);
+		}
+		function onKey(e) {
+			const keyMap = { q: 'q', r: 'r', b: 'b', n: 'n' };
+			if (e.key === 'Escape') { cleanup(); resolve(null); return; }
+			if (keyMap[e.key]) { cleanup(); resolve(keyMap[e.key]); }
+		}
+
+		buttons.forEach(b => b.addEventListener('click', onChoose));
+		cancel.addEventListener('click', onCancel);
+		document.addEventListener('keydown', onKey);
+
+		modal.classList.remove('hidden');
+	});
+}
+
+// Handle piece drops while in Free Board edit mode.
+async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
+	try {
+		const pos = board.position(); // object mapping
+		if (target === 'offboard') {
+			// remove piece from source
+			delete pos[source];
+			board.position(pos);
+			const fen = rebuildGameFromPosition(pos);
+			await copyFenToClipboard(fen);
+			setStatus('Piece removed (free board) — FEN copied');
+			return;
+		}
+		if (source === target) return; // no-op
+		// place the dragged piece onto target square
+		pos[target] = piece;
+		// if source was from board (not offboard) and moving, clear source
+		if (oldPos && oldPos[source]) delete pos[source];
+		board.position(pos);
+		const fen = rebuildGameFromPosition(pos);
+		await copyFenToClipboard(fen);
+		setStatus('Piece placed (free board) — FEN copied');
+		return;
+	} catch (e) {
+		console.warn('Free-board drop failed', e);
+		return rejectMove('No move');
+	}
+}
+
+// Handle piece drops during a live game (legal move checks, promotions, submitUci)
+function handleGameDrop(source, target, piece) {
+	// Block user moves while an engine request is in flight to avoid UI/server desync
+	if (engineBusy && !freeBoardMode) { setStatus('Engine busy — try again'); return 'snapback'; }
+
+	if (target === 'offboard' || source === target) return rejectMove('No move');
+
+	// Don’t accept moves while server reply pending or promotion chooser open
+	if (moveInFlight || pendingPromotion) return 'snapback';
+
+	const moving = game.get(source);
+	if (!moving) return rejectMove('No piece');
+
+	if (String(moving.color).toLowerCase() !== String(game.turn()).toLowerCase()) {
+		return rejectMove('Wrong side to move');
+	}
+
+	const fromPiece = moving;
+	const isPawn = fromPiece && fromPiece.type === 'p';
+	const willPromote =
+		isPawn &&
+		((fromPiece.color === 'w' && target[1] === '8') ||
+		 (fromPiece.color === 'b' && target[1] === '1'));
+
+	const prevFen = game.fen();
+
+	// HARD legality gate — no side effects
+	const legal = game.move({ from: source, to: target, promotion: 'q' });
+	if (legal === null) return rejectMove('Illegal move');
+	game.undo();
+
+	// Promotion: open modal, but onDrop MUST return immediately
+	if (willPromote) {
+		pendingPromotion = { source, target, fromPiece, prevFen };
+
+		showPromotionModal(fromPiece.color).then(promotion => {
+			const p = pendingPromotion;
+			pendingPromotion = null;
+
+			// Hard guard: ensure the pending promotion state still exists
+			if (!p) {
+				setStatus('Promotion state lost (ignored)');
+				console.warn('Promotion callback fired but pendingPromotion was cleared. Ignoring.');
+				return;
+			}
+
+			if (!promotion) {
+				setStatus('Promotion canceled');
+				return;
+			}
+
+			// Validate locally with chosen piece
+			const attempted = game.move({ from: p.source, to: p.target, promotion });
+			if (attempted == null) {
+				setStatus('Illegal promotion move');
+				return;
+			}
+			game.undo();
+
+			submitUci(p.source + p.target + promotion, p.prevFen);
+		});
+
+		return 'snapback';
+	}
+
+	// Normal move: local legality gate
+	const attempted = game.move({ from: source, to: target });
+	if (attempted == null) return 'snapback';
+	game.undo();
+
+	submitUci(source + target, prevFen);
+
+	// Server-authoritative: don’t let piece sit on target square yet
+	return 'snapback';
+}
+
+async function onDrop(source, target, piece, newPos, oldPos, orientation) {
+	if (freeBoardMode) {
+		return handleFreeBoardDrop(source, target, piece, newPos, oldPos);
+	}
+	return handleGameDrop(source, target, piece);
+}
+
+function submitUci(uci, prevFen) {
+	moveInFlight = true;
+	setStatus('Sending move: ' + uci);
+
+	postMove(uci).then(resp => {
+		moveInFlight = false;
+
+		if (resp && resp.error) {
+			// Revert (should already be there since we snapback)
+			setFen(prevFen, false);
+			setStatus('Move rejected: ' + resp.error);
+			return;
+		}
+
+		if (resp && resp.fen) {
+			setFen(resp.fen, true);
+
+			let msg = 'Move played: ' + uci;
+			if (resp.engine_reply) msg += ' | Engine: ' + resp.engine_reply;
+			setStatus(msg);
+
+			// If server reports game end, use the canonical PGN returned once
+			if (resp.game_over) {
+				gameOver = true;
+				lastFinalPgn = resp.pgn || null;
+				const resultText = resp.reason ? `${resp.reason} — ${resp.result}` : resp.result || '';
+				setStatus('Game ended: ' + resultText);
+				// Update result indicator and switch to RESULT UI
+				const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
+				try { setPlayEngine(false); } catch (e) {}
+				setUIState('RESULT', { result: resp.result || '', reason: resp.reason || '', pgn: resp.pgn || '' });
+			}
+			return;
+		}
+
+		// Defensive fallback
+		setFen(prevFen, false);
+		setStatus('Move error: no FEN returned');
+	}).catch((err) => {
+		moveInFlight = false;
+		// log the full error for debugging
+		console.error('submitUci error', err);
+		try { board.position(prevFen); } catch (e) {}
+		try { game.load(prevFen); } catch (e) {}
+		const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = prevFen;
+		// Surface the error message to the user when available
+		const msg = (err && err.message) ? ('Network error: ' + err.message) : 'Network error (move not sent)';
+		setStatus(msg);
+	});
+}
+
+function onDragStart(source, piece, position, orientation) {
+	// piece is like "wP", "bQ" in chessboard.js
+	const turn = (game && typeof game.turn === 'function') ? String(game.turn()).toLowerCase() : 'w'; // 'w' or 'b'
+	const pieceColor = (piece && piece[0]) ? String(piece[0]).toLowerCase() : null; // 'w' or 'b'
+	console.debug('onDragStart:', { piece, pieceColor, turn });
+
+	// Allow free editing/drags when freeBoardMode is on (engine off)
+	if (freeBoardMode) {
+		if (moveInFlight || pendingPromotion) return false;
+		return true;
+	}
+
+	// Only allow drags when UI is in IN_GAME state
+	try {
+		if (typeof uiState !== 'undefined' && uiState !== 'IN_GAME') return false;
+	} catch (e) { }
+
+	if (moveInFlight || pendingPromotion || gameOver) return false;
+	if (!pieceColor) return false;
+	if (pieceColor !== turn) return false;
+
+	return true;
+}
+
+
+window.addEventListener('load', async () => {
+	if (typeof Chess === 'undefined') {
+		console.error('Chess.js not loaded — `Chess` is undefined');
+		return;
+	}
+	if (typeof Chessboard === 'undefined') {
+		console.error('Chessboard.js not loaded — `Chessboard` is undefined');
+		return;
+	}
+
+	const init = await fetchState();
+	game = new Chess();
+	// Load player color preference (controls which side is at the bottom)
+	const savedPlayerColor = (localStorage.getItem('playerColor') || 'white');
+	playerSelect = document.getElementById('player-color');
+	if (playerSelect) playerSelect.value = savedPlayerColor;
+
+	// Position captured trays under the board on the side matching the opponent
+	const capturedTraysEl = document.querySelector('.captured-trays');
+	function updateCapturedTraysAnchor() {
+		try {
+			if (!capturedTraysEl || !playerSelect) return;
+			capturedTraysEl.classList.remove('anchored-left','anchored-right');
+			const humanIsWhite = playerSelect.value === 'white';
+			// If human is white (white at bottom), anchor captured pieces to the right below board
+			if (humanIsWhite) capturedTraysEl.classList.add('anchored-right');
+			else capturedTraysEl.classList.add('anchored-left');
+		} catch (e) { /* ignore */ }
+	}
+	// apply immediately
+	try { updateCapturedTraysAnchor(); } catch (e) {}
+	// update when player color changes
+	if (playerSelect) playerSelect.addEventListener('change', () => {
+		try { localStorage.setItem('playerColor', playerSelect.value); } catch (e) {}
+		try { updateCapturedTraysAnchor(); } catch (e) {}
+		try { updatePlayersDisplay(); } catch (e) {}
+	});
+
+	// Persona controls
+	enginePersonaSelect = document.getElementById('engine-persona');
+	try {
+		const savedPersona = localStorage.getItem('enginePersona');
+		if (enginePersonaSelect && savedPersona) enginePersonaSelect.value = savedPersona;
+		if (enginePersonaSelect && savedPersona) {
+			enginePersonaSelect.value = savedPersona;
+		} else if (enginePersonaSelect) {
+			// default persona
+			enginePersonaSelect.value = 'Student';
+			try { localStorage.setItem('enginePersona', 'Student'); } catch (e) {}
+		}
+	} catch (e) { /* ignore localStorage errors */ }
+	if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) {} });
+	// playersDisplay and updatePlayersDisplay moved to top-level
+	// update display when names or side change
+	if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', updatePlayersDisplay);
+	// initial render of the players mapping
+	try { updatePlayersDisplay(); } catch (e) { }
+
+	// Ensure playBtn reference is available for handlers that run earlier
+	playBtn = document.getElementById('play-engine-btn');
+
+	// Header persona indicator (keeps user informed which persona is active)
+	const personaIndicator = document.getElementById('persona-indicator');
+	function refreshPersonaIndicator() {
+		try {
+			const name = enginePersonaSelect ? enginePersonaSelect.value : '';
+			if (personaIndicator) personaIndicator.textContent = `Persona: ${name || '(none)'}`;
+		} catch (e) { /* ignore */ }
+	}
+	// initialize and keep in sync
+	refreshPersonaIndicator();
+	if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', refreshPersonaIndicator);
+
+	board = Chessboard('board', {
+		draggable: true,
+		position: init.fen,
+		orientation: savedPlayerColor,
+		onDragStart: onDragStart,
+		onDrop: onDrop,
+		pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png'
+	});
+	// Ensure the board uses the container width and resizes when tabs change
+	try {
+		const resizeBoard = () => { try { if (board && typeof board.resize === 'function') board.resize(); else if (board && typeof board.position === 'function') board.position(board.fen()); } catch(e){} };
+
+		// Tab switching: show/hide tab-cards and mark selected tab
+		const tabButtons = document.querySelectorAll('.tab-btn');
+		const tabCards = document.querySelectorAll('.tab-card');
+		function activateTab(name) {
+			tabButtons.forEach(b => { const sel = b.getAttribute('data-tab') === name; b.setAttribute('aria-selected', sel ? 'true' : 'false'); });
+			tabCards.forEach(c => { c.style.display = (c.getAttribute('data-tab') === name) ? 'block' : 'none'; });
+			// call resize to ensure board fits new layout
+			setTimeout(resizeBoard, 40);
+
+			// Special handling for Free Board tab: preserve ongoing game FEN and present starting position
+			try {
+				const freeToggle = document.getElementById('free-board-toggle');
+				if (name === 'free') {
+					if (!freeBoardMode) {
+						try { if (playEngine) setPlayEngine(false); } catch (e) {}
+						// remember current game position if present
+						try { savedGameFenBeforeFree = game ? game.fen() : null; } catch (e) { savedGameFenBeforeFree = null; }
+						freeBoardMode = true;
+						if (freeToggle) freeToggle.checked = true;
+						// show standard starting position for editing
+						try {
+							const startFen = (new Chess()).fen();
+							// do not push into history; just set board and game state for editing
+							game.load(startFen);
+							board.position(startFen);
+							const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = startFen;
+							setStatus('Free Board: starting position loaded (original game saved)');
+						} catch (e) { console.warn('Failed to load start position for free board', e); }
+					}
+				} else {
+					// leaving free board tab: restore saved game if any
+					if (freeBoardMode) {
+						freeBoardMode = false;
+						if (freeToggle) freeToggle.checked = false;
+						if (savedGameFenBeforeFree) {
+							try {
+								setFen(savedGameFenBeforeFree, false);
+								setStatus('Restored game position');
+							} catch (e) { console.warn('Failed to restore saved game fen', e); }
+							savedGameFenBeforeFree = null;
+						}
+					}
+				}
+			} catch (e) { console.warn('activateTab free-board handling failed', e); }
+		}
+		tabButtons.forEach(b => b.addEventListener('click', () => activateTab(b.getAttribute('data-tab'))));
+		// initial
+		activateTab('game');
+	} catch (e) { console.warn('tab init failed', e); }
+		// Tools card wiring: open simulator in new tab and open tests folder via API
+		// Skip tools and free-board UI in V1 mode
+		if (!window.V1_MODE) {
+			try {
+			const launchBtn = document.getElementById('launch-simulator');
+			if (launchBtn) launchBtn.addEventListener('click', ()=> window.open('/test_personas', '_blank'));
+			const openTests = document.getElementById('open-tests-folder');
+			if (openTests) openTests.addEventListener('click', async ()=>{
+				try {
+					// attempt to open the tests folder via server route if available
+					const r = await fetch('/api/open_pgn_notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({filename: ''})});
+					alert('Open folder action triggered (if supported on this OS)');
+				} catch (e) { alert('Open folder not supported: '+e); }
+			});
+			} catch(e) { console.warn('tools wiring failed', e); }
+		// Tools panel wiring: persona tuning, engine info, simulator batch
+		try {
+			async function getJson(url){ const r=await fetch(url); return r.json(); }
+
+			// Persona tuning
+			const personaSelect = document.getElementById('persona_select_tune');
+			const fields = {
+				depth: document.getElementById('tune_depth'),
+				multipv: document.getElementById('tune_multipv'),
+				temp: document.getElementById('tune_temp'),
+				mercy_mate_in: document.getElementById('tune_mercy_mate_in'),
+				mercy_mate_keep: document.getElementById('tune_mercy_mate_keep'),
+				mercy_gap: document.getElementById('tune_mercy_gap'),
+				mercy_keep: document.getElementById('tune_mercy_keep'),
+				end_pieces: document.getElementById('tune_endgame_pieces'),
+				end_depth: document.getElementById('tune_endgame_depth'),
+				end_temp: document.getElementById('tune_endgame_temp')
+			};
+

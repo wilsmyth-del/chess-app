@@ -29,6 +29,7 @@ def is_persona_allowed(name):
 # Centralized default persona definitions (used for UI tuning + runtime)
 DEFAULT_PERSONAS = {
     'grasshopper': {
+        'blunder_cap': 2000,
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 450, 'Skill Level': 0, 'MultiPV': 10},
         'depth': 4,
         'pick_temperature': 2.5,
@@ -43,6 +44,7 @@ DEFAULT_PERSONAS = {
         },
     },
     'student': {
+        'blunder_cap': 900,
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 750, 'Skill Level': 2, 'MultiPV': 10},
         'depth': 6,
         'pick_temperature': 1.6,
@@ -57,6 +59,7 @@ DEFAULT_PERSONAS = {
         },
     },
     'adept': {
+        'blunder_cap': 350,
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1175, 'Skill Level': 5, 'MultiPV': 10},
         'depth': 8,
         'pick_temperature': 1.2,
@@ -71,6 +74,7 @@ DEFAULT_PERSONAS = {
         },
     },
     'ninja': {
+        'blunder_cap': 150,
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1450, 'Skill Level': 8, 'MultiPV': 10},
         'depth': 10,
         'pick_temperature': 0.7,
@@ -85,6 +89,7 @@ DEFAULT_PERSONAS = {
         },
     },
     'sensei': {
+        'blunder_cap': 50,
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1700, 'Skill Level': 12, 'MultiPV': 10},
         'depth': 14,
         'pick_temperature': 0.0,
@@ -517,7 +522,7 @@ def make_curve_weights(curve, K):
     return [1.0] * K
 
 
-def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board, depth: int, temperature: float, multipv: int = 10, mercy: dict = None, enforce_no_blunder: bool = False, blunder_threshold: int = 150, persona: str = None):
+def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board, depth: int, temperature: float, multipv: int = 10, mercy: dict = None, enforce_no_blunder: bool = False, blunder_threshold: int = 150, blunder_cap: int = None, persona: str = None):
     """
     If temperature > 0, sample among top MultiPV moves with a soft weighting.
     If temperature == 0, just take best move.
@@ -670,12 +675,30 @@ def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board
             sel_idx = i
             break
 
-    # Determine if selection is a blunder relative to best
+    # --- BLUNDER GUARD ---
+    # If a persona-provided blunder_cap is supplied, veto selections that
+    # exceed the allowed error magnitude (in centipawns) and play the best move.
+    if blunder_cap is not None and sel_cp is not None and best_cp is not None:
+        try:
+            error_magnitude = best_cp - sel_cp
+            if error_magnitude > blunder_cap:
+                selected = candidates[0][0]
+                sel_cp = candidates[0][1]
+                # we've replaced the selection with best; treat as non-blunder
+                is_blunder = False
+        except Exception:
+            # swallow guard errors to avoid changing move behavior
+            pass
+
+    # Determine if selection is a blunder relative to best (legacy threshold)
     is_blunder = False
     if sel_cp is not None:
-        gap = best_cp - sel_cp
-        if gap >= blunder_threshold:
-            is_blunder = True
+        try:
+            gap = best_cp - sel_cp
+            if gap >= blunder_threshold:
+                is_blunder = True
+        except Exception:
+            is_blunder = False
 
     # If we're enforcing no blunders and selected is a blunder, pick the best instead
     if enforce_no_blunder and is_blunder:
