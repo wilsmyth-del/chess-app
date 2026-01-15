@@ -61,6 +61,17 @@ Files changed:
 - `static/style.css` — debug panel styling (forced high-contrast light palette for readability in dark mode).
 - `server.py` — pass debug flag to templates and respect `DEBUG`/`FLASK_DEBUG` env vars when running.
 
+## 2026-01-15 — Shutdown prep and final fixes
+
+- Appended mobile/tablet responsive CSS to `static/style.css` to improve board sizing on phones.
+- Removed manual in-board "Download PGN" button and added client `autoSaveGameToServer()` helper that posts finished PGNs to `/api/save_pgn` and shows a small status confirmation.
+- Fixed front-end scope bug by promoting `uiState` to a global so drag handlers see the UI state and the board lock works properly until `Start` is hit.
+- Switched shared whiteboard persistence to store a Move List (space-separated UCI moves) instead of only FEN screenshots so PGNs reconstruct correctly from history.
+- Replaced `end_game()` with a robust version that syncs history before finalizing, normalizes input names/sides, and writes friendly PGN metadata (`Event`, `Site`, `Date`, `Round`, `Termination`).
+- Added `SHUTDOWN.txt` (see repo root) with suggested shutdown steps to gracefully stop the server and archive state.
+
+Files changed in this session: `static/style.css`, `static/main.js`, `app/chess_core.py`, `CHANGELOG.md`, `SHUTDOWN.txt`
+
 How to verify:
 - Restart the Flask server (use debug mode if you want the dev panel), play until a mate/draw/resign and confirm the RESULT panel shows the correct `engine_reply` and canonical PGN.
 

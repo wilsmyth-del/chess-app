@@ -1,0 +1,30 @@
+Shutdown checklist — Chess Tutor v1.1
+
+Date: 2026-01-15
+
+Steps to gracefully shut down and archive the app:
+
+1) Stop the dev server (if running):
+   - If using the provided venv on Windows PowerShell:
+     .\venv\Scripts\Activate.ps1
+     taskkill /IM python.exe /F
+   - If running via `python server.py` in a console, press Ctrl+C in that console.
+
+2) Ensure all PGNs and data are saved:
+   - Check `games/` for recent `game_YYYYMMDD_HHMMSS.pgn` files.
+   - Optionally copy `games/` and `data/` to a backup location.
+
+3) Archive repository and artifacts:
+   - Create a zip/tar of the repo root excluding `venv/` and large engine binaries.
+
+4) Optional: Remove transient state files
+   - Delete `game_state.fen` in the repo root (Windows) or `/dev/shm/game_state.fen` on Linux if present.
+
+5) Final git commit and push:
+   - git add -A; git commit -m "chore: update CHANGELOG and add SHUTDOWN note"; git push
+
+6) Reboot the host (optional) if you plan to free memory or ensure no engine processes remain.
+
+Notes:
+- If you want, I can run the final `git commit` for you and create a release tag.
+- Tell me whether to push to origin or keep changes local.
