@@ -1,0 +1,17 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.14"]
+[Round "?"]
+[White "White"]
+[Black "Black"]
+[Result "1-0"]
+[Termination "checkmate"]
+
+1. d4 Nf6 2. Nf3 a5 3. Bf4 Nh5 4. Bg5 c6 5. e3 g6 6. Bd3 f5 7. Nbd2 a4 8. O-O
+Ng7 9. b3 a3 10. c3 d5 11. b4 Bd7 12. c4 Ra7 13. c5 Rg8 14. b5 Be6 15. bxc6
+Nxc6 16. Qc1 Rh8 17. Qc3 Bd7 18. e4 h6 19. exf5 Bxf5 20. Bxf5 Qc7 21. Bd3 Qc8
+22. Bf4 Ra5 23. Nb3 e5 24. dxe5 Ra7 25. Nbd4 Kf7 26. Nxc6 Nh5 27. Nxa7 Qf5 28.
+Rab1 Qxd3 29. Qxd3 g5 30. Rxb7+ Ke6 31. Qd4 Bd6 32. Rb6 Ra8 33. Nc6 Bxc5 34.
+Qxc5 Kd7 35. Rbb1 gxf4 36. g3 fxg3 37. hxg3 Kc8 38. Qxd5 Nf6 39. Qe6+ Kc7 40.
+Qxf6 Rh8 41. e6 h5 42. e7 Re8 43. Qf7 Kd7 44. Nce5+ Kc8 45. Qxe8+ Kc7 46. Qd8#
+1-0

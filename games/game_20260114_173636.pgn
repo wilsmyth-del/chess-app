@@ -1,0 +1,23 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.14"]
+[Round "?"]
+[White "White"]
+[Black "Black"]
+[Result "1-0"]
+[Termination "checkmate"]
+
+1. d4 Nf6 2. Nf3 h6 3. Bf4 g5 4. Bg3 d5 5. e3 g4 6. Nbd2 Nc6 7. Bd3 h5 8. Bh4
+Be6 9. O-O gxf3 10. Qxf3 Bg7 11. Bb5 a5 12. a4 Bh6 13. c3 Bc8 14. Nb3 Be6 15.
+Qe2 Bd7 16. c4 Nb8 17. cxd5 Kf8 18. d6 b6 19. dxe7+ Qxe7 20. Bxd7 Nbxd7 21.
+Rad1 Qd6 22. e4 Qf4 23. g3 Qxe4 24. Qxe4 Nxe4 25. Rde1 Nd2 26. Rd1 Nxf1 27.
+Rxf1 Rh7 28. d5 Rh8 29. Nd4 Bg7 30. Nc6 Re8 31. b4 Be5 32. bxa5 Bf6 33. axb6
+Bxh4 34. bxc7 Rc8 35. Na7 Rxc7 36. a5 Rc3 37. a6 Rb3 38. Nb5 Nb6 39. a7 Na8 40.
+Nc7 Kg7 41. Nxa8 Rxa8 42. d6 Bf6 43. d7 Rb6 44. Rd1 Rc6 45. Ra1 Rc7 46. d8=Q
+Bxd8 47. Rd1 Raxa7 48. Rxd8 Ra4 49. Kg2 Rc1 50. Rd5 Ra2 51. Rxh5 Rc3 52. Rh3
+Re2 53. g4 Rec2 54. g5 Rc4 55. Rh6 R2c3 56. Kf1 Ra3 57. f3 Ra1+ 58. Kf2 Raa4
+59. Kg3 Ra5 60. f4 Ra8 61. Kg4 Ra7 62. Kh5 Rc2 63. f5 Ra8 64. f6+ Kg8 65. g6
+Rf2 66. gxf7+ Kxf7 67. h3 Rf1 68. h4 Ke6 69. Kg6 Rf2 70. Kg7 Ra3 71. f7+ Kd7
+72. f8=Q Rxf8 73. Kxf8 Ra4 74. Rh7+ Kd8 75. Kf7 Ra2 76. Kf6 Rh2 77. Ke6 Ra2 78.
+Rh8+ Kc7 79. Rh7+ Kb8 80. Kd6 Rd2+ 81. Kc6 Rd4 82. Kb6 Rg4 83. Rh8+ Rg8 84.
+Rxg8# 1-0

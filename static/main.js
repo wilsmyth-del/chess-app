@@ -11,6 +11,7 @@ let freeBoardMode = false;
 let selectedPiece = null; // like 'wK' or 'bq'
 // saved game FEN when entering Free Board tab so we can restore later
 let savedGameFenBeforeFree = null;
+let hintsRemaining = 0;
 
 // Expose UI state setter globally so top-level functions can call it
 let setUIState = null;
@@ -109,6 +110,180 @@ let playBtn = null;
 // Debug/version stamp to detect wrong/old files being loaded in the browser
 console.log('main.js loaded: v1.2 - turn lock + promo modal + dark mode');
 
+// --- Arrow drawing utilities (SVG overlay) ---------------------------------
+// Provide simple helpers to draw arrows between board squares for hints/analysis.
+const _ARROW_NS = 'http://www.w3.org/2000/svg';
+function ensureArrowLayer() {
+  const boardWrap = document.getElementById('board-container') || document.getElementById('board')?.parentElement;
+  if (!boardWrap) return null;
+  let svg = boardWrap.querySelector('svg.arrow-layer');
+  if (svg) return svg;
+  svg = document.createElementNS(_ARROW_NS, 'svg');
+  svg.className = 'arrow-layer';
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.style.position = 'absolute';
+  svg.style.left = '0'; svg.style.top = '0';
+  svg.style.pointerEvents = 'none';
+  svg.style.zIndex = '1000';
+
+  // Define a simple arrowhead marker
+  const defs = document.createElementNS(_ARROW_NS, 'defs');
+  const marker = document.createElementNS(_ARROW_NS, 'marker');
+  marker.setAttribute('id', 'arrowhead');
+  marker.setAttribute('markerWidth', '10');
+  marker.setAttribute('markerHeight', '7');
+  marker.setAttribute('refX', '10');
+  marker.setAttribute('refY', '3.5');
+  marker.setAttribute('orient', 'auto');
+  const path = document.createElementNS(_ARROW_NS, 'path');
+  path.setAttribute('d', 'M0,0 L10,3.5 L0,7 z');
+  path.setAttribute('fill', 'currentColor');
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  // Ensure parent has positioning context
+  try { if (!boardWrap.style.position) boardWrap.style.position = 'relative'; } catch (e) {}
+  boardWrap.appendChild(svg);
+  return svg;
+}
+
+function squareCenter(square) {
+  // Try to locate the square element rendered by the board library
+  try {
+    const sel = document.querySelector('#board .square-' + square);
+    const boardWrap = document.getElementById('board-container') || document.getElementById('board')?.parentElement;
+    const svg = ensureArrowLayer();
+    if (!sel || !svg || !boardWrap) {
+      return null;
+    }
+    const sqRect = sel.getBoundingClientRect();
+    const wrapRect = boardWrap.getBoundingClientRect();
+    const x = sqRect.left - wrapRect.left + sqRect.width / 2;
+    const y = sqRect.top - wrapRect.top + sqRect.height / 2;
+    return { x, y };
+  } catch (e) { return null; }
+}
+
+function clearArrows() {
+  // 1. Clear the primary layer (class="arrow-layer")
+  const svg = ensureArrowLayer();
+  if (svg) {
+    const defs = svg.querySelector('defs');
+    svg.innerHTML = '';
+    // Preserve defs (arrowheads) so we don't have to recreate them
+    if (defs) svg.appendChild(defs);
+  }
+
+  // 2. Clear/Remove the fallback layer (id="arrow-overlay")
+  const overlay = document.getElementById('arrow-overlay');
+  if (overlay) {
+    // We can safely remove this entire element; it gets recreated if needed
+    overlay.remove();
+  }
+}
+
+function drawArrow(fromSquare, toSquare, opts = {}) {
+  try {
+    const svg = ensureArrowLayer();
+    if (!svg) return null;
+    const a = squareCenter(fromSquare);
+    const b = squareCenter(toSquare);
+    if (!a || !b) return null;
+    const line = document.createElementNS(_ARROW_NS, 'line');
+    line.setAttribute('x1', String(a.x));
+    line.setAttribute('y1', String(a.y));
+    line.setAttribute('x2', String(b.x));
+    line.setAttribute('y2', String(b.y));
+    const color = opts.color || (opts.weak ? '#f39c12' : '#e74c3c');
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', String(opts.width || 6));
+    line.setAttribute('stroke-linecap', 'round');
+    line.setAttribute('marker-end', 'url(#arrowhead)');
+    line.style.opacity = (opts.opacity !== undefined) ? String(opts.opacity) : '0.95';
+    svg.appendChild(line);
+    return line;
+  } catch (e) {
+    console.warn('drawArrow failed', e);
+    return null;
+  }
+}
+
+// Alternate arrow drawer using percent coordinates and simple overlay marker
+function drawArrowPercent(source, target, color = '#28a745') {
+  // Ensure SVG overlay exists
+  let overlay = document.getElementById('arrow-overlay');
+  const boardEl = document.getElementById('board');
+  if (!overlay && boardEl) {
+    overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    overlay.id = 'arrow-overlay';
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.zIndex = '1000';
+    // append to board container so coordinates align
+    const container = document.getElementById('board-container') || boardEl.parentElement;
+    if (container) container.appendChild(overlay);
+  }
+  if (!overlay) return null;
+
+  // Helper: Calculate center % of a square (assuming standard 8x8 grid)
+  const files = 'abcdefgh';
+  const ranks = '12345678';
+  const getCoords = (sq) => {
+    const f = files.indexOf(sq[0]);
+    const r = ranks.indexOf(sq[1]);
+    if (f < 0 || r < 0) return null;
+    // If board is flipped (Black at bottom), invert coordinates
+    let isFlipped = false;
+    try { if (board && typeof board.orientation === 'function') isFlipped = (board.orientation() === 'black'); } catch (e) { isFlipped = false; }
+    const x = (isFlipped ? (7 - f) : f) * 12.5 + 6.25;
+    const y = (isFlipped ? r : (7 - r)) * 12.5 + 6.25;
+    return { x, y };
+  };
+
+  const start = getCoords(source);
+  const end = getCoords(target);
+  if (!start || !end) return null;
+
+  // Create arrow line
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', start.x + '%');
+  line.setAttribute('y1', start.y + '%');
+  line.setAttribute('x2', end.x + '%');
+  line.setAttribute('y2', end.y + '%');
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', '4');
+  line.setAttribute('stroke-linecap', 'round');
+
+  // Create marker definition if needed
+  let defs = overlay.querySelector('defs');
+  if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs'); overlay.appendChild(defs); }
+  const safeId = 'arrowhead-' + color.replace('#','');
+  if (!defs.querySelector('#' + safeId)) {
+    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    marker.setAttribute('id', safeId);
+    marker.setAttribute('markerWidth', '6');
+    marker.setAttribute('markerHeight', '6');
+    marker.setAttribute('refX', '5');
+    marker.setAttribute('refY', '3');
+    marker.setAttribute('orient', 'auto');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M0,0 L0,6 L6,3 z');
+    path.setAttribute('fill', color);
+    marker.appendChild(path);
+    defs.appendChild(marker);
+  }
+  line.setAttribute('marker-end', 'url(#' + safeId + ')');
+  line.style.opacity = '0.75';
+  overlay.appendChild(line);
+  return line;
+}
+
 function setStatus(msg) {
   const el = document.getElementById('status');
   const t = new Date().toLocaleTimeString();
@@ -139,6 +314,57 @@ function flashTrays() {
       el.classList.add('tray-flash');
       setTimeout(() => el.classList.remove('tray-flash'), 500);
     });
+  } catch (e) { /* ignore */ }
+
+  // Hint button listener (available when DOM ready)
+  try {
+    const hintBtn = document.getElementById('hint-btn');
+    if (hintBtn) {
+      hintBtn.addEventListener('click', async () => {
+        if (hintsRemaining <= 0) return;
+        if (typeof game === 'undefined' || gameOver || !playEngine) return;
+        setStatus('Asking Sensei for a hint...');
+        try {
+          const fen = (game && typeof game.fen === 'function') ? game.fen() : (document.getElementById('fen')?.textContent || '').trim();
+          const r = await fetch('/api/analyze', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ fen: fen, time_limit: 0.2 })
+          });
+          const data = await r.json();
+          if (data && data.ok && data.best_move) {
+            // 1. Decrement budget (unless infinite)
+            if (typeof hintsRemaining !== 'undefined' && hintsRemaining !== Infinity) {
+              hintsRemaining--;
+            }
+            // 2. Draw the arrow
+            const uci = data.best_move;
+            const source = uci.substring(0, 2);
+            const target = uci.substring(2, 4);
+            try { clearArrows(); } catch (e) {}
+            try { drawArrow(source, target, '#ffdd00'); } catch (e) { try { drawArrowPercent(source, target, '#ffdd00'); } catch (e) {} }
+
+            // 3. Update the button text and disabled state
+            const label = (hintsRemaining === Infinity) ? '∞' : hintsRemaining;
+            hintBtn.textContent = `💡 Hint (${label})`;
+            if (hintsRemaining <= 0) {
+              hintBtn.disabled = true;
+            }
+
+            // Persist updated budget
+            try { localStorage.setItem('hintsRemaining', String(hintsRemaining)); } catch (e) {}
+
+            // 4. Show text feedback
+            const hintText = document.getElementById('hint-text'); if (hintText) hintText.textContent = `Sensei suggests: ${uci}`;
+            setStatus(`Hint: ${uci}`);
+          } else {
+            setStatus('Sensei returned no suggestion');
+          }
+        } catch (e) {
+          console.warn('Hint fetch failed', e);
+          setStatus('Sensei is silent (Network error)');
+        }
+      });
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -191,91 +417,97 @@ function setCapturedFromFen(fen) {
 function renderCapturedTrays() {
   const trayW = document.getElementById('tray-white');
   const trayB = document.getElementById('tray-black');
-  if (trayW) trayW.innerHTML = '';
-  if (trayB) trayB.innerHTML = '';
-  // Show fixed piece trays (5 pieces each color: P,R,N,B,Q). Click to add in free-board mode.
-  const pieceOrder = ['p','r','n','b','q'];
 
-  // Compute counts from captured arrays (capturedByWhite shows black pieces captured by white)
-  const countsW = { p:0, r:0, n:0, b:0, q:0 };
-  const countsB = { p:0, r:0, n:0, b:0, q:0 };
-  for (const t of capturedByWhite) if (countsW[t] !== undefined) countsW[t]++;
-  for (const t of capturedByBlack) if (countsB[t] !== undefined) countsB[t]++;
+  // Define values just for sorting (so Queen appears before Pawn)
+  const values = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 
-  if (trayW) {
-    for (const p of pieceOrder) {
+  function renderTray(container, pieces, isWhiteTray) {
+    if (!container) return;
+    container.innerHTML = '';
+
+    // Sort pieces by value (High to Low looks best)
+    pieces = (pieces || []).slice();
+    pieces.sort((a, b) => (values[b] || 0) - (values[a] || 0));
+
+    const counts = {};
+    pieces.forEach(p => { counts[p] = (counts[p] || 0) + 1; });
+
+    // Render in standard order (Q, R, B, N, P)
+    const pieceOrder = ['q','r','b','n','p'];
+
+    pieceOrder.forEach(p => {
+      if (!counts[p]) return;
+
       const wrapper = document.createElement('span');
       wrapper.className = 'tray-item';
       wrapper.style.display = 'inline-flex';
       wrapper.style.alignItems = 'center';
+      wrapper.style.marginRight = '6px';
+
       const img = document.createElement('img');
-      // tray-white shows black pieces captured by White, so use black piece images
-      img.src = `/static/img/chesspieces/wikipedia/b${p.toUpperCase()}.png`;
-      img.className = 'captured-piece';
-      img.style.cursor = 'pointer';
-      img.addEventListener('click', async () => {
-        if (!freeBoardMode) return;
-        try {
-          const pos = board.position();
-          const sq = findFirstEmptySquare(pos);
-          if (!sq) { setStatus('No empty square to add piece'); return; }
-          // add a black piece (captured piece shown in white tray is black)
-          pos[sq] = 'b' + p.toUpperCase();
-          board.position(pos);
-          const fen = rebuildGameFromPosition(pos);
-          await copyFenToClipboard(fen);
-          setStatus('Piece added from tray — FEN copied');
-        } catch (e) { console.warn('tray add failed', e); }
-      });
+      // If this is White's tray, it holds captured Black pieces
+      const colorPrefix = isWhiteTray ? 'b' : 'w';
+      img.src = `/static/img/chesspieces/wikipedia/${colorPrefix}${p.toUpperCase()}.png`;
+      img.style.height = '28px';
+
       wrapper.appendChild(img);
-      const cnt = countsW[p] || 0;
-      if (cnt > 0) {
+
+      // Add tiny badge if multiple (e.g., 2 Pawns)
+      if (counts[p] > 1) {
         const badge = document.createElement('span');
-        badge.className = 'tray-badge';
-        badge.textContent = String(cnt);
+        badge.style.fontSize = '0.75em';
+        badge.style.marginLeft = '1px';
+        badge.style.color = '#777';
+        badge.textContent = `x${counts[p]}`;
         wrapper.appendChild(badge);
       }
-      trayW.appendChild(wrapper);
-    }
+      container.appendChild(wrapper);
+    });
   }
 
-  if (trayB) {
-    for (const p of pieceOrder) {
-      const wrapper = document.createElement('span');
-      wrapper.className = 'tray-item';
-      wrapper.style.display = 'inline-flex';
-      wrapper.style.alignItems = 'center';
-      const img = document.createElement('img');
-      // tray-black shows white pieces captured by Black, so use white piece images
-      img.src = `/static/img/chesspieces/wikipedia/w${p.toUpperCase()}.png`;
-      img.className = 'captured-piece';
-      img.style.cursor = 'pointer';
-      img.addEventListener('click', async () => {
-        if (!freeBoardMode) return;
-        try {
-          const pos = board.position();
-          const sq = findFirstEmptySquare(pos);
-          if (!sq) { setStatus('No empty square to add piece'); return; }
-          // add a white piece (captured piece shown in black tray is white)
-          pos[sq] = 'w' + p.toUpperCase();
-          board.position(pos);
-          const fen = rebuildGameFromPosition(pos);
-          await copyFenToClipboard(fen);
-          setStatus('Piece added from tray — FEN copied');
-        } catch (e) { console.warn('tray add failed', e); }
-      });
-      wrapper.appendChild(img);
-      const cnt = countsB[p] || 0;
-      if (cnt > 0) {
-        const badge = document.createElement('span');
-        badge.className = 'tray-badge';
-        badge.textContent = String(cnt);
-        wrapper.appendChild(badge);
-      }
-      trayB.appendChild(wrapper);
+  // Render the trays (No scoring math needed)
+  renderTray(trayW, capturedByWhite, true);
+  renderTray(trayB, capturedByBlack, false);
+}
+
+function markAutoPgnSaved(filename) {
+  try {
+    autoPgnSaved = true;
+    if (filename) setStatus('Auto-saved PGN: ' + filename);
+    else setStatus('Auto-saved PGN');
+  } catch (e) { /* ignore */ }
+}
+
+// Auto-save helper: send PGN to server for persistent storage
+async function autoSaveGameToServer(pgn, result) {
+  if (!pgn) return;
+  try {
+    const userSide = (document.getElementById('player-color')?.value === 'black') ? 'black' : 'white';
+    const userName = (function(){ try { return localStorage.getItem('playerName') || 'Player'; } catch (e){ return 'Player'; } })();
+    const oppName = (function(){ try { return localStorage.getItem('enginePersona') || 'Opponent'; } catch (e){ return 'Opponent'; } })();
+
+    const r = await fetch('/api/save_pgn', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        pgn_text: pgn,
+        result: result,
+        user_side: userSide,
+        user_name: userName,
+        opponent_name: oppName,
+        engine: !!playEngine
+      })
+    });
+    const data = await r.json();
+    if (data && data.pgn_file) {
+      console.log('Auto-saved PGN:', data.pgn_file);
+      setStatus(`Game Over (${result}) — Saved to server: ${data.pgn_file}`);
     }
+  } catch (e) {
+    console.warn('Auto-save failed', e);
   }
 }
+
 
 function clearCapturedTrays() {
   capturedByWhite = [];
@@ -374,11 +606,16 @@ function setFen(fen, pushHistory = false) {
 
   game.load(fen);
   board.position(fen);
+  try { clearArrows(); } catch (e) {}
   const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = fen;
   updateResultIndicator();
   // Check if this position is terminal and auto-save if enabled
   try { maybeTriggerAutoSave(); } catch (e) { }
   renderMoveList();
+  try {
+    // Trigger analysis update for Free Board / Study mode
+    try { updateAnalysis(fen); } catch (e) { /* ignore */ }
+  } catch (e) {}
 }
 
 function computeSanSequence(prevFen, newFen) {
@@ -412,7 +649,55 @@ function computeSanSequence(prevFen, newFen) {
 }
 
 function renderMoveList() {
-  // move list UI removed — no-op
+  const listEl = document.getElementById('move-list');
+  if (!listEl) return;
+
+  listEl.innerHTML = '';
+
+  // Flatten the historyMoves array (since it might contain chunks like ['e4'] or ['e4','e5'])
+  let allMoves = [];
+  historyMoves.forEach(chunk => {
+    if (Array.isArray(chunk)) allMoves.push(...chunk);
+  });
+
+  for (let i = 0; i < allMoves.length; i++) {
+    const moveNum = Math.floor(i / 2) + 1;
+    // Add move number for White's moves
+    if (i % 2 === 0) {
+      const numSpan = document.createElement('span');
+      numSpan.style.color = '#888'; numSpan.style.marginRight = '4px'; numSpan.style.marginLeft = '8px';
+      numSpan.textContent = moveNum + '.';
+      listEl.appendChild(numSpan);
+    }
+
+    // The Move Element
+    const moveSpan = document.createElement('span');
+    moveSpan.textContent = allMoves[i];
+    moveSpan.style.cursor = 'pointer';
+    moveSpan.style.padding = '1px 3px';
+    moveSpan.style.borderRadius = '3px';
+    // Highlight if this is the active move in history
+    // historyIndex points to the FEN after this move.
+    // Since historyFens has 1 extra item (start pos), historyIndex 1 = after move 1.
+    // So move index 'i' corresponds to historyIndex 'i+1'.
+    if (i + 1 === historyIndex) {
+      moveSpan.style.background = '#28a745'; // Green highlight
+      moveSpan.style.color = '#fff';
+      moveSpan.id = 'active-move'; // Marker for auto-scroll
+    } else {
+      moveSpan.style.color = '#ccc';
+    }
+
+    // Click to jump to this move
+    moveSpan.onclick = () => { try { historyIndex = i + 1; setFen(historyFens[historyIndex], false); } catch (e) {} };
+
+    listEl.appendChild(moveSpan);
+  }
+
+  // Auto-scroll to bottom or active move
+  const active = document.getElementById('active-move');
+  if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  else listEl.scrollTop = listEl.scrollHeight;
 }
 
 // Accordion toggle handlers
@@ -440,8 +725,33 @@ document.addEventListener('DOMContentLoaded', () => {
       ev.preventDefault(); goBack();
     } else if (ev.key === 'ArrowRight') {
       ev.preventDefault(); goForward();
+    } else if (ev.key === 'Home') {
+      ev.preventDefault(); try { if (historyFens && historyFens.length > 0) { historyIndex = 0; setFen(historyFens[0], false); setStatus('Jumped to start'); } } catch (e) {}
+    } else if (ev.key === 'End') {
+      ev.preventDefault(); try { if (historyFens && historyFens.length > 0) { historyIndex = historyFens.length - 1; setFen(historyFens[historyIndex], false); setStatus('Jumped to end'); } } catch (e) {}
     }
   });
+
+  // Sensei Analysis toggle: trigger immediate analysis when enabled
+  try {
+    const senseiToggle = document.getElementById('sensei-analysis-toggle');
+    if (senseiToggle) {
+      senseiToggle.addEventListener('change', () => {
+        try {
+          const checked = !!senseiToggle.checked;
+          const scoreEl = document.getElementById('analysis-score');
+          const lineEl = document.getElementById('analysis-line');
+          if (!checked) {
+            if (scoreEl) scoreEl.textContent = '-';
+            if (lineEl) lineEl.textContent = '-';
+            return;
+          }
+          const fen = (document.getElementById('fen')?.textContent || '').trim() || (game && game.fen ? game.fen() : null);
+          if (fen) updateAnalysis(fen);
+        } catch (e) { console.warn('sensei toggle handler failed', e); }
+      });
+    }
+  } catch (e) { /* ignore */ }
 });
 
 // --- Auto-sync snapshot at session end -------------------------------------------------
@@ -642,6 +952,57 @@ async function postEngineMove() {
   }
 }
 
+// Study: request analysis for a FEN when Sensei Analysis toggle is active
+async function updateAnalysis(fen) {
+  if (!fen) return;
+  try {
+    const toggle = document.getElementById('sensei-analysis-toggle');
+    if (!toggle || !toggle.checked) return;
+
+    const outScore = document.getElementById('analysis-score');
+    const outLine = document.getElementById('analysis-line');
+
+    const r = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ fen: fen })
+    });
+    const j = await r.json();
+    // Accept direct payload or wrapped {ok:..., payload...}
+    const payload = (j && typeof j === 'object' && j.ok === false) ? j : j;
+
+    let score = payload && payload.score !== undefined ? payload.score : (payload && payload.eval ? payload.eval : null);
+    let best = payload && payload.best_move !== undefined ? payload.best_move : (payload && payload.best ? payload.best : null);
+    let cont = payload && payload.continuation !== undefined ? payload.continuation : (payload && payload.pv ? payload.pv : null);
+
+    function fmtScore(s) {
+      if (s === null || s === undefined) return '-';
+      if (typeof s === 'string' && s.startsWith('M')) return s; // mate string
+      const n = Number(s);
+      if (!isNaN(n)) {
+        const v = (n / 100.0).toFixed(2);
+        return (v[0] !== '-') ? ('+' + v) : v;
+      }
+      return String(s);
+    }
+
+    if (outScore) outScore.textContent = 'Evaluation: ' + fmtScore(score);
+    if (outLine) {
+      if (cont && Array.isArray(cont) && cont.length > 0) {
+        outLine.textContent = cont.join(' ');
+      } else if (best) {
+        outLine.textContent = best;
+      } else {
+        outLine.textContent = '-';
+      }
+    }
+  } catch (e) {
+    try { if (document.getElementById('analysis-score')) document.getElementById('analysis-score').textContent = '-'; } catch (e) {}
+    try { if (document.getElementById('analysis-line')) document.getElementById('analysis-line').textContent = '-'; } catch (e) {}
+    console.warn('analysis request failed', e);
+  }
+}
+
 function showPromotionModal(color) {
   return new Promise(resolve => {
     const modal = document.getElementById('promotion-modal');
@@ -707,6 +1068,7 @@ async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
     const fen = rebuildGameFromPosition(pos);
     await copyFenToClipboard(fen);
     setStatus('Piece placed (free board) — FEN copied');
+    try { updateAnalysis(fen); } catch (e) { /* ignore */ }
     return;
   } catch (e) {
     console.warn('Free-board drop failed', e);
@@ -782,15 +1144,21 @@ function handleGameDrop(source, target, piece) {
   // Normal move: local legality gate
   const attempted = game.move({ from: source, to: target });
   if (attempted == null) return 'snapback';
-  game.undo();
-
+  // 1. Apply the move locally and SAVE it to history (Intermediate State)
+  // (we intentionally do not undo here so the UI reflects the user's ply)
+  const intermediateFen = game.fen();
+  // Push to history immediately so we have the "User Moved" state
+  setFen(intermediateFen, true);
+  // 2. Send to server (which will eventually return the Engine's move)
   submitUci(source + target, prevFen);
-
-  // Server-authoritative: don’t let piece sit on target square yet
-  return 'snapback';
+  // 3. Update status
+  setStatus('Move sent: ' + source + target);
+  // Accept the drop visually since we've already updated the board
+  return 'trash';
 }
 
 async function onDrop(source, target, piece, newPos, oldPos, orientation) {
+  try { clearArrows(); } catch (e) {}
   if (freeBoardMode) {
     return handleFreeBoardDrop(source, target, piece, newPos, oldPos);
   }
@@ -805,7 +1173,21 @@ function submitUci(uci, prevFen) {
     moveInFlight = false;
 
     if (resp && resp.error) {
-      // Revert (should already be there since we snapback)
+      // Revert: remove the intermediate ply from history if present and restore previous FEN
+      try {
+        if (historyFens && historyFens.length > 0) {
+          // Try to find the last occurrence of prevFen in history; prefer restoring to that index
+          const idx = historyFens.lastIndexOf(prevFen);
+          if (idx !== -1) {
+            historyFens = historyFens.slice(0, idx + 1);
+            historyIndex = idx;
+          } else {
+            // Fallback: drop the last entry
+            historyFens.pop();
+            historyIndex = historyFens.length - 1;
+          }
+        }
+      } catch (e) { /* ignore */ }
       setFen(prevFen, false);
       setStatus('Move rejected: ' + resp.error);
       return;
@@ -828,6 +1210,7 @@ function submitUci(uci, prevFen) {
         const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
         try { setPlayEngine(false); } catch (e) {}
         setUIState('RESULT', { result: resp.result || '', reason: resp.reason || '', pgn: resp.pgn || '' });
+        try { autoSaveGameToServer(resp.pgn, resp.result); } catch (e) { /* ignore */ }
       }
       return;
     }
@@ -839,8 +1222,13 @@ function submitUci(uci, prevFen) {
     moveInFlight = false;
     // log the full error for debugging
     console.error('submitUci error', err);
-    try { board.position(prevFen); } catch (e) {}
-    try { game.load(prevFen); } catch (e) {}
+    try {
+      if (historyFens && historyFens.length > 0) {
+        historyFens.pop();
+        historyIndex = historyFens.length - 1;
+      }
+    } catch (e) {}
+    try { setFen(prevFen, false); } catch (e) { try { board.position(prevFen); } catch (e) {} try { game.load(prevFen); } catch (e) {} }
     const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = prevFen;
     // Surface the error message to the user when available
     const msg = (err && err.message) ? ('Network error: ' + err.message) : 'Network error (move not sent)';
@@ -849,6 +1237,7 @@ function submitUci(uci, prevFen) {
 }
 
 function onDragStart(source, piece, position, orientation) {
+  try { clearArrows(); } catch (e) {}
   // piece is like "wP", "bQ" in chessboard.js
   const turn = (game && typeof game.turn === 'function') ? String(game.turn()).toLowerCase() : 'w'; // 'w' or 'b'
   const pieceColor = (piece && piece[0]) ? String(piece[0]).toLowerCase() : null; // 'w' or 'b'
@@ -890,26 +1279,8 @@ window.addEventListener('load', async () => {
   playerSelect = document.getElementById('player-color');
   if (playerSelect) playerSelect.value = savedPlayerColor;
 
-  // Position captured trays under the board on the side matching the opponent
-  const capturedTraysEl = document.querySelector('.captured-trays');
-  function updateCapturedTraysAnchor() {
-    try {
-      if (!capturedTraysEl || !playerSelect) return;
-      capturedTraysEl.classList.remove('anchored-left','anchored-right');
-      const humanIsWhite = playerSelect.value === 'white';
-      // If human is white (white at bottom), anchor captured pieces to the right below board
-      if (humanIsWhite) capturedTraysEl.classList.add('anchored-right');
-      else capturedTraysEl.classList.add('anchored-left');
-    } catch (e) { /* ignore */ }
-  }
-  // apply immediately
-  try { updateCapturedTraysAnchor(); } catch (e) {}
-  // update when player color changes
-  if (playerSelect) playerSelect.addEventListener('change', () => {
-    try { localStorage.setItem('playerColor', playerSelect.value); } catch (e) {}
-    try { updateCapturedTraysAnchor(); } catch (e) {}
-    try { updatePlayersDisplay(); } catch (e) {}
-  });
+  // Captured trays are now statically placed in the sidebar; dynamic anchoring removed.
+  try { /* no-op placeholder for static tray placement */ } catch (e) {}
 
   // Persona controls
   enginePersonaSelect = document.getElementById('engine-persona');
@@ -931,8 +1302,52 @@ window.addEventListener('load', async () => {
   // initial render of the players mapping
   try { updatePlayersDisplay(); } catch (e) { }
 
+  // Setup pill-style selectors for player color and persona (if present)
+  try {
+    function setupPillSelector(containerId, inputId, defaultValue, onChange) {
+      const container = document.getElementById(containerId);
+      const input = document.getElementById(inputId);
+      if (!input || !container) return;
+      const buttons = Array.from(container.querySelectorAll('[data-value]'));
+      // initialize from localStorage or input value
+      const saved = localStorage.getItem(inputId) || input.value || defaultValue;
+      input.value = saved;
+      buttons.forEach(b => {
+        const v = b.getAttribute('data-value');
+        if (v === input.value) {
+          b.style.background = '#222'; b.style.color = '#fff';
+        } else { b.style.background = 'transparent'; b.style.color = '#ccc'; }
+        b.addEventListener('click', () => {
+          try { input.value = v; } catch (e) {}
+          buttons.forEach(x => { if (x === b) { x.style.background = '#222'; x.style.color = '#fff'; } else { x.style.background = 'transparent'; x.style.color = '#ccc'; } });
+          try { localStorage.setItem(inputId, v); } catch (e) {}
+          try { input.dispatchEvent(new Event('change')); } catch (e) {}
+          if (typeof onChange === 'function') onChange(v);
+        });
+      });
+    }
+
+    setupPillSelector('player-color-pills', 'player-color', 'white', (v) => { try { setBoardOrientation(v); } catch (e) {} });
+    setupPillSelector('engine-persona-pills', 'engine-persona', 'Student', (v) => { try { applyBotProfile(v); updatePlayersDisplay(); } catch (e) {} });
+  } catch (e) { /* ignore pill wiring errors */ }
+
+  // Load persisted hintsRemaining if present
+  try {
+    const savedHints = localStorage.getItem('hintsRemaining');
+    if (savedHints !== null && typeof savedHints !== 'undefined') {
+      hintsRemaining = (savedHints === 'Infinity') ? Infinity : (parseInt(savedHints, 10) || 0);
+    }
+    const hintBtnInit = document.getElementById('hint-btn');
+    if (hintBtnInit) {
+      const label = (hintsRemaining === Infinity) ? '∞' : hintsRemaining;
+      hintBtnInit.textContent = `💡 Hint (${label})`;
+      hintBtnInit.disabled = (hintsRemaining <= 0);
+    }
+  } catch (e) { /* ignore localStorage or DOM errors */ }
+
   // Ensure playBtn reference is available for handlers that run earlier
-  playBtn = document.getElementById('play-engine-btn');
+  // Prefer the new main start button; fall back to legacy play-engine-btn if present
+  playBtn = document.getElementById('main-start-btn') || document.getElementById('play-engine-btn');
 
   // Header persona indicator (keeps user informed which persona is active)
   const personaIndicator = document.getElementById('persona-indicator');
@@ -1246,6 +1661,8 @@ window.addEventListener('load', async () => {
         }
         const pal = document.getElementById('piece-palette');
         if (pal) pal.style.display = freeBoardMode ? 'flex' : 'none';
+        const analysis = document.getElementById('analysis-controls');
+        if (analysis) analysis.style.display = freeBoardMode ? 'block' : 'none';
         setStatus(freeBoardMode ? 'Free board editing enabled' : 'Free board editing disabled');
         // When leaving free-board mode (i.e., entering game mode), ensure captured trays are visible
         // Also ensure engine controls are disabled while in free-board mode
@@ -1414,7 +1831,53 @@ window.addEventListener('load', async () => {
       if (banner) banner.textContent = info.result || '';
       if (reasonEl) reasonEl.textContent = info.reason || '';
     }
+    // Hint button visibility
+    try {
+      const hintBtn = document.getElementById('hint-btn');
+      if (hintBtn) {
+        const show = (state === 'IN_GAME');
+        hintBtn.style.display = show ? 'inline-flex' : 'none';
+
+        // Update label/disabled state if visible
+        if (show && typeof hintsRemaining !== 'undefined') {
+          const label = (hintsRemaining === Infinity) ? '∞' : hintsRemaining;
+          hintBtn.textContent = `💡 Hint (${label})`;
+          hintBtn.disabled = (hintsRemaining <= 0);
+        }
+      }
+    } catch (e) {}
+    try { const hintText = document.getElementById('hint-text'); if (hintText && state !== 'IN_GAME') hintText.textContent = ''; } catch (e) {}
   }
+
+  // Move history navigation wiring (buttons and keyboard shortcuts were added above).
+  try {
+    const navStart = document.getElementById('nav-start');
+    const navPrev = document.getElementById('nav-prev');
+    const navNext = document.getElementById('nav-next');
+    const navEnd = document.getElementById('nav-end');
+
+    function jumpToStart() {
+      try {
+        if (!historyFens || historyFens.length === 0) return;
+        historyIndex = 0;
+        setFen(historyFens[historyIndex], false);
+        setStatus('Jumped to start');
+      } catch (e) {}
+    }
+    function jumpToEnd() {
+      try {
+        if (!historyFens || historyFens.length === 0) return;
+        historyIndex = historyFens.length - 1;
+        setFen(historyFens[historyIndex], false);
+        setStatus('Jumped to end');
+      } catch (e) {}
+    }
+
+    if (navStart) navStart.addEventListener('click', jumpToStart);
+    if (navEnd) navEnd.addEventListener('click', jumpToEnd);
+    if (navPrev) navPrev.addEventListener('click', () => { try { goBack(); } catch (e) {} });
+    if (navNext) navNext.addEventListener('click', () => { try { goForward(); } catch (e) {} });
+  } catch (e) { /* ignore wiring failures */ }
 
   // Wire setup and control buttons
   try {
@@ -1445,18 +1908,108 @@ window.addEventListener('load', async () => {
       } catch (e) { setStatus('Download failed'); }
     });
 
-    if (newGameBtn) newGameBtn.addEventListener('click', async () => {
-      try {
-        const r = await postReset();
-        if (r && r.fen) {
-          historyFens = []; historyIndex = -1; setFen(r.fen, true); setUIState('SETUP'); gameOver = false; lastFinalPgn = null; setStatus('Ready for new game');
-        } else setStatus('Reset failed');
-      } catch (e) { setStatus('Network error: reset failed'); }
-    });
+    if (newGameBtn) {
+      newGameBtn.addEventListener('click', async () => {
+        console.debug('Returning to Lobby...');
+
+        // 1. Force Engine/Game Stop
+        try { setPlayEngine(false); } catch (e) {}
+        gameOver = false;
+        lastFinalPgn = null;
+
+        // 2. Switch UI back to Lobby (Setup)
+        try { setUIState('SETUP'); } catch (e) {}
+
+        // 3. Reset the Board (Server & Client)
+        try {
+          setStatus('Resetting board...');
+          const r = await postReset();
+          if (r && r.fen) {
+            historyFens = [];
+            historyMoves = [];
+            historyIndex = -1;
+            setFen(r.fen, true);
+            try { renderMoveList(); } catch (e) {}
+            setStatus('Ready for new game');
+          } else {
+            setStatus('Reset failed (Network)');
+          }
+        } catch (e) {
+          setStatus('Reset failed (Network)');
+          console.error(e);
+        }
+      });
+    }
   } catch (e) { /* ignore wiring errors */ }
 
   // start in SETUP
   setUIState('SETUP');
+
+  // Hint button wiring: request analysis and draw arrow for best move
+  try {
+    const hintBtn = document.getElementById('hint-btn');
+    const hintText = document.getElementById('hint-text');
+    if (hintBtn) {
+      hintBtn.addEventListener('click', async () => {
+        // 1. Safety check: Don't allow click if out of hints
+        if (typeof hintsRemaining !== 'undefined' && hintsRemaining !== Infinity && hintsRemaining <= 0) {
+          return;
+        }
+        try {
+          hintBtn.disabled = true;
+          if (hintText) hintText.textContent = 'Thinking...';
+
+          const fen = (document.getElementById('fen')?.textContent || '').trim() || (game && game.fen ? game.fen() : null);
+          if (!fen) return;
+
+          // Request the hint
+          const r = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ fen: fen, time_limit: 0.5 })
+          });
+          const j = await r.json();
+          if (j && j.ok !== false && j.best_move) {
+            // 2. SUCCESS: Decrement the budget
+            if (typeof hintsRemaining !== 'undefined' && hintsRemaining !== Infinity) {
+              hintsRemaining--;
+              try { localStorage.setItem('hintsRemaining', String(hintsRemaining)); } catch (e) {}
+            }
+
+            // 3. Update the Button Label
+            const label = (hintsRemaining === Infinity) ? '∞' : hintsRemaining;
+            hintBtn.textContent = `💡 Hint (${label})`;
+
+            // 4. Draw Arrow
+            try { clearArrows(); } catch (e) {}
+            const uci = j.best_move;
+            const from = uci.slice(0,2), to = uci.slice(2,4);
+            try { drawArrowPercent(from, to, '#ffdd00'); } catch (e) {}
+
+            // 5. Update Text
+            if (hintText) hintText.textContent = `Sensei suggests: ${uci}`;
+            setStatus(`Hint used: ${uci}`);
+          } else {
+            if (hintText) hintText.textContent = 'No suggestion found';
+          }
+        } catch (e) {
+          console.warn('Hint request failed', e);
+          if (document.getElementById('hint-text')) document.getElementById('hint-text').textContent = 'Error';
+        } finally {
+          // 6. Re-enable button ONLY if they have hints left
+          if (typeof hintsRemaining !== 'undefined' && hintsRemaining > 0) {
+            hintBtn.disabled = false;
+          } else if (hintsRemaining === Infinity) {
+            hintBtn.disabled = false;
+          } else {
+            hintBtn.disabled = true; // Stay disabled if 0
+          }
+        }
+      });
+    }
+    // Update hint visibility when persona changes
+    try { if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { setUIState(uiState); } catch (e) {} }); } catch (e) {}
+  } catch (e) { /* ignore */ }
 
   // Wire up player color selector to persist and apply orientation
   if (playerSelect) {
@@ -1492,8 +2045,10 @@ window.addEventListener('load', async () => {
       if (resp && resp.fen) {
         // Reset history and load server position
         historyFens = [];
+        historyMoves = [];
         historyIndex = -1;
         setFen(resp.fen, true);
+        try { renderMoveList(); } catch (e) {}
         // clear captured pieces on reset
         try { clearCapturedTrays(); } catch (e) {}
         // clearing any game-over state
@@ -1506,8 +2061,10 @@ window.addEventListener('load', async () => {
             const r2 = await postEngineMove();
             if (r2 && r2.fen) {
               historyFens = [];
+              historyMoves = [];
               historyIndex = -1;
               setFen(r2.fen, true);
+              try { renderMoveList(); } catch (e) {}
               // If server reports game end, finalize locally as well
               if (r2.game_over) {
                 gameOver = true;
@@ -1517,6 +2074,7 @@ window.addEventListener('load', async () => {
                 setStatus('Game ended: ' + resultText);
                 const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
                 setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
+                try { autoSaveGameToServer(r2.pgn, r2.result); } catch (e) { /* ignore */ }
               } else {
                 setStatus('Engine played first move');
               }
@@ -1584,77 +2142,22 @@ window.addEventListener('load', async () => {
       const data = await r.json();
       // Mark game over and show end result due to resignation; keep the final board position as-is
       gameOver = true;
-      autoPgnSaved = !!(data && data.pgn_file);
+      if (data && data.pgn_file) markAutoPgnSaved(data.pgn_file);
+      else autoPgnSaved = false;
       const resText = data && data.winner ? `${data.winner} wins (resignation)` : 'Game ended (resignation)';
       setStatus(resText + (data && data.pgn_file ? ` | saved: ${data.pgn_file}` : ''));
       const el = document.getElementById('result-indicator'); if (el) el.textContent = resText;
       // switch to RESULT UI and expose PGN
       setUIState('RESULT', { result: data && data.result ? data.result : '', reason: data && data.reason ? data.reason : 'resign', pgn: data && data.pgn ? data.pgn : '' });
+      try { if (data && data.pgn) autoSaveGameToServer(data.pgn, data.result); } catch (e) { /* ignore */ }
       // Do NOT modify board FEN or clear history here; user may inspect final position or use Reset button.
     } catch (e) {
       setStatus('Network error: end-game failed');
     }
   }
 
-  // Save PGN button
-  const savePgnBtn = document.getElementById('save-pgn-btn');
-  if (savePgnBtn) {
-    savePgnBtn.addEventListener('click', async () => {
-      // Ask server to write PGN of current board
-      // Determine provisional result from result-indicator if present
-      const resultText = document.getElementById('result-indicator')?.textContent || '';
-      let result = '*';
-      if (resultText.includes('wins')) result = resultText.startsWith('White') ? '1-0' : '0-1';
-      if (resultText.includes('Draw')) result = '1/2-1/2';
-      try {
-        // If we have a final PGN returned by the server, request the server
-        // to save it to the project `games/` folder (server-side write).
-        if (gameOver && lastFinalPgn) {
-          try {
-            const payload = { pgn_text: lastFinalPgn, result: result, user_side: (playerSelect && playerSelect.value === 'black') ? 'black' : 'white', user_name: 'Player', opponent_name: (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent'), engine: !!playEngine };
-            const r = await fetch('/api/save_pgn', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-            const data = await r.json();
-            if (data && data.pgn_file) {
-              autoPgnSaved = true;
-              setStatus('Saved PGN to server: ' + data.pgn_file);
-              // Also trigger a browser download of the saved file from the server
-              try {
-                const downloadUrl = '/api/download_pgn?filename=' + encodeURIComponent(data.pgn_file);
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.style.display = 'none';
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-              } catch (e) {
-                // non-fatal if download fails
-              }
-            } else {
-              setStatus('Server PGN save failed');
-            }
-          } catch (e) {
-            setStatus('Network error: save pgn failed');
-          }
-          return;
-        }
-
-        // Fallback: ask server to save current board PGN (legacy behavior)
-        const userSide = (playerSelect && playerSelect.value === 'black') ? 'black' : 'white';
-        const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (playEngine ? 'Engine' : 'Opponent');
-        const payload = { result, user_side: userSide, user_name: 'Player', opponent_name: opponentName, engine: !!playEngine };
-        const r = await fetch('/api/save_pgn', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        const data = await r.json();
-        if (data && data.pgn_file) {
-          autoPgnSaved = true;
-          setStatus('PGN saved: ' + data.pgn_file);
-        } else {
-          setStatus('PGN save failed');
-        }
-      } catch (e) {
-        setStatus('Network error: save pgn failed');
-      }
-    });
-  }
+  // Save PGN button removed: server now auto-saves PGNs. The Result panel
+  // still exposes a manual `download-final-pgn` button for personal downloads.
 
   // Clear captured trays on reset/load
   try { clearCapturedTrays(); } catch (e) {}
@@ -1707,20 +2210,21 @@ window.addEventListener('load', async () => {
       applyTheme(saved);
       return;
     }
-    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    applyTheme(prefersDark ? 'dark' : 'light');
+    // Default to dark mode when no explicit preference is stored
+    try { applyTheme('dark'); } catch (e) { /* ignore */ }
   }
 
+  // --- Theme Toggle Logic ---
   const themeToggle = document.getElementById('theme-toggle');
-  if (themeToggle) {
-    themeToggle.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-      const next = current === 'dark' ? 'light' : 'dark';
-      applyTheme(next);
-      try { localStorage.setItem('theme', next); } catch (e) { /* ignore */ }
-    });
-  }
-  initThemeFromPreference();
+  function updateThemeBtnText(currentTheme) { if (themeToggle) { // If current is dark, button should offer Light Mode, and vice versa
+    themeToggle.textContent = (currentTheme === 'dark') ? 'Light Mode' : 'Dark Mode'; } }
+
+  if (themeToggle) { themeToggle.addEventListener('click', () => { const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; const next = current === 'dark' ? 'light' : 'dark'; applyTheme(next); updateThemeBtnText(next); try { localStorage.setItem('theme', next); } catch (e) {} }); }
+
+  // Initialize theme on load (default to dark unless user preference exists)
+  try { initThemeFromPreference(); } catch (e) {}
+  const startTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  updateThemeBtnText(startTheme);
 
   // Engine control sliders: wire up display and defaults
   const timeSlider = document.getElementById('engine-time');
@@ -1765,7 +2269,8 @@ window.addEventListener('load', async () => {
 
   // Game start/stop (replaces old engine toggle). Track active game state in `playEngine`.
   // playback flag (game active)
-  playBtn = document.getElementById('play-engine-btn');
+  // Ensure playBtn references the main start button or the legacy button
+  playBtn = playBtn || document.getElementById('main-start-btn') || document.getElementById('play-engine-btn');
   function setPlayEngine(on, opts = {}) {
     playEngine = !!on;
     // when a game is active, persona cannot be changed
@@ -1786,11 +2291,13 @@ window.addEventListener('load', async () => {
         try { renderCapturedTrays(); } catch (e) {}
         if (playerSelect && playerSelect.value === 'black') {
           postEngineMove().then(r2 => {
-            if (r2 && r2.fen) {
-              historyFens = [];
-              historyIndex = -1;
-              setFen(r2.fen, true);
-              try { renderCapturedTrays(); } catch (e) { }
+              if (r2 && r2.fen) {
+                historyFens = [];
+                historyMoves = [];
+                historyIndex = -1;
+                setFen(r2.fen, true);
+                try { renderMoveList(); } catch (e) {}
+                try { renderCapturedTrays(); } catch (e) { }
               if (r2.game_over) {
                 gameOver = true;
                 lastFinalPgn = r2.pgn || null;
@@ -1832,6 +2339,7 @@ window.addEventListener('load', async () => {
                       setStatus('Game ended: ' + resultText);
                       const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
                       setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
+                      try { autoSaveGameToServer(r2.pgn, r2.result); } catch (e) { /* ignore */ }
                   } else {
                     setStatus('Engine played first move — Game started');
                   }
@@ -1848,6 +2356,7 @@ window.addEventListener('load', async () => {
     } else {
       // game stopped
       try { renderCapturedTrays(); } catch (e) {}
+      try { if (document.getElementById('hint-btn')) document.getElementById('hint-btn').style.display = 'none'; } catch (e) {}
     }
   }
 
@@ -1870,48 +2379,59 @@ window.addEventListener('load', async () => {
     } catch (e) { console.warn('setBoardOrientation failed', e); }
   }
 
-  // Single entry point to start a game — reads current setup and begins either
-  // a Human-vs-Human (server reset) game or an Engine game (persona-driven).
+  // Unified startGame using the Lobby inputs
   async function startGame() {
+    console.debug('Starting new game...');
+
+    // 1. Gather settings from the Setup Panel
+    const nameInput = document.getElementById('player-name');
+    const colorInput = document.getElementById('player-color');
+    const personaInput = document.getElementById('engine-persona');
+
+    const playerName = nameInput ? nameInput.value : 'Guest';
+    const playerColor = colorInput ? colorInput.value : 'white';
+    const personaVal = personaInput ? personaInput.value : 'Student';
+
+    // 2. Persist preferences
     try {
-      // persist player name if present
-      try { const pname = document.getElementById('player-name'); if (pname) localStorage.setItem('playerName', pname.value || 'Player'); } catch (e) {}
+      if (nameInput) localStorage.setItem('playerName', playerName);
+      if (colorInput) localStorage.setItem('playerColor', playerColor);
+      if (personaInput) localStorage.setItem('enginePersona', personaVal);
+    } catch (e) {}
 
-      const opp = document.getElementById('engine-persona');
-      const oppVal = opp ? opp.value : null;
+    // 3. Reset the Hint Budget (Rules)
+    try {
+      const pLower = personaVal.toLowerCase();
+      if (pLower === 'grasshopper') hintsRemaining = Infinity;
+      else if (pLower === 'student') hintsRemaining = 3;
+      else if (pLower === 'adept') hintsRemaining = 2;
+      else if (pLower === 'ninja') hintsRemaining = 1;
+      else hintsRemaining = 0;
+    } catch (e) { hintsRemaining = 0; }
 
-      // If opponent is Human, start a normal server-backed game (engine disabled)
-      if (oppVal === 'Human') {
-        try {
-          const r = await postReset();
-          if (r && r.fen) {
-            historyFens = []; historyIndex = -1; setFen(r.fen, true);
-            setUIState('IN_GAME');
-            setPlayEngine(false);
-            setStatus('Game started (Human opponent)');
-          } else {
-            setStatus('Failed to start game');
-          }
-        } catch (e) { setStatus('Network error starting game'); }
-        console.debug('startGame', { playerColor: playerSelect && playerSelect.value, engineEnabled: false, persona: enginePersonaSelect && enginePersonaSelect.value, flipped: false });
-        return;
+    // 4. Update Board Orientation
+    try { if (board && typeof board.orientation === 'function') { board.orientation(playerColor); } } catch (e) {}
+
+    // 5. Apply Bot Profile (Skill/Time)
+    try { applyBotProfile(personaVal); } catch (e) {}
+
+    // 6. Switch UI to GAME Mode
+    try { setUIState('IN_GAME'); } catch (e) {}
+
+    // 7. Start the Engine/Server Game
+    try { setPlayEngine(true); } catch (e) {}
+
+    // 8. Update Displays
+    try { updatePlayersDisplay(); } catch (e) {}
+    try {
+      const hintBtn = document.getElementById('hint-btn');
+      if (hintBtn) {
+        const label = (hintsRemaining === Infinity) ? '∞' : hintsRemaining;
+        hintBtn.textContent = `💡 Hint (${label})`;
+        hintBtn.disabled = (hintsRemaining <= 0);
+        hintBtn.style.display = 'inline-flex';
       }
-
-      // Otherwise treat opponent preset as an engine persona; apply preset to persona selector
-      try {
-        if (enginePersonaSelect && oppVal) {
-          // If preset is one of the persona names, apply it
-          if (enginePersonaSelect.querySelector('option[value="' + oppVal + '"]')) enginePersonaSelect.value = oppVal;
-          try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) {}
-          // apply bot profile so skill slider reflects preset
-          try { applyBotProfile(enginePersonaSelect.value); } catch (e) {}
-        }
-      } catch (e) { /* ignore */ }
-
-      // Start engine play (setPlayEngine will reset server and handle first move if needed)
-      try { setPlayEngine(true); } catch (e) { setStatus('Failed to start engine mode'); }
-      console.debug('startGame', { playerColor: playerSelect && playerSelect.value, engineEnabled: true, persona: enginePersonaSelect && enginePersonaSelect.value, flipped: false });
-    } catch (e) { console.error('startGame failed', e); }
+    } catch (e) {}
   }
 
     if (playBtn) {

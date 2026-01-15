@@ -425,6 +425,82 @@ class ChessGame:
             except Exception:
                 pass
 
+    def analyze_position(self, fen, time_limit=0.5):
+        """Analyse a FEN position without making a move.
+
+        Returns a dict with keys:
+          - score: centipawn integer (positive = white advantage) or string like 'M3'/'M-3' for mates
+          - best_move: UCI string of the best move (or None)
+          - continuation: list of up to first 3 UCI moves from the PV
+        """
+        # Basic defaults
+        result = {'score': None, 'best_move': None, 'continuation': []}
+        if not self.engine_path:
+            return result
+
+        try:
+            board = chess.Board(fen)
+        except Exception:
+            return result
+
+        try:
+            eng = chess.engine.SimpleEngine.popen_uci(self.engine_path)
+        except Exception:
+            return result
+
+        try:
+            info = eng.analyse(board, chess.engine.Limit(time=float(time_limit)))
+            # Extract PV moves if present
+            pv = info.get('pv') if isinstance(info, dict) else None
+            if pv:
+                try:
+                    result['best_move'] = pv[0].uci()
+                    result['continuation'] = [m.uci() for m in pv[:3]]
+                except Exception:
+                    pass
+
+            # Extract score and normalize to white-perspective centipawns
+            score_obj = info.get('score') if isinstance(info, dict) else None
+            if score_obj is not None:
+                try:
+                    s = score_obj.pov(chess.WHITE)
+                    # Mate handling
+                    if hasattr(s, 'is_mate') and s.is_mate():
+                        try:
+                            m = s.mate()
+                            if m is None:
+                                result['score'] = None
+                            else:
+                                # Positive means mate for White, negative means mate for Black
+                                if m > 0:
+                                    result['score'] = f"M{int(m)}"
+                                else:
+                                    result['score'] = f"M-{int(abs(m))}"
+                        except Exception:
+                            result['score'] = None
+                    else:
+                        # centipawn value (int). Use large mate substitute if needed.
+                        try:
+                            cp = s.score(mate_score=100000)
+                            if cp is None:
+                                result['score'] = None
+                            else:
+                                result['score'] = int(cp)
+                        except Exception:
+                            result['score'] = None
+                except Exception:
+                    result['score'] = None
+        except Exception:
+            # analysis failed; return defaults
+            pass
+        finally:
+            try:
+                eng.quit()
+            except Exception:
+                pass
+
+        return result
+
     def close_engine(self):
         try:
             if self._engine:

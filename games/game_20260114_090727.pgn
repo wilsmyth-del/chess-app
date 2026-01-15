@@ -1,0 +1,13 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.14"]
+[Round "?"]
+[White "White"]
+[Black "Black"]
+[Result "1-0"]
+[Termination "checkmate"]
+
+1. d4 c6 2. Bf4 h6 3. e3 a5 4. Nf3 Na6 5. Nbd2 b5 6. c3 b4 7. Bc4 e6 8. Bg5 Nf6
+9. Bh4 Nc7 10. e4 bxc3 11. bxc3 a4 12. Rb1 Be7 13. O-O Nh7 14. Qe2 Nf6 15. e5
+d5 16. exf6 Ba3 17. fxg7 Bf8 18. gxh8=Q Bb7 19. Bd3 Qe7 20. Qf6 Qa3 21. Ne5 Bc5
+22. dxc5 Bc8 23. Qe7# 1-0

@@ -193,6 +193,13 @@ html, body {
 
 [data-theme="dark"] .tray-badge { background: rgba(255,255,255,0.06); color:var(--text); }
 
+/* Wrapper for each captured piece icon (used by JS) */
+.tray-item { display:inline-flex; align-items:center; gap:6px; margin-right:4px; }
+
+/* Material advantage badge shown next to the captured-tray container */
+.score-badge { display:inline-block; padding:4px 8px; border-radius:8px; font-weight:700; font-size:0.95em; background: rgba(40,167,69,0.08); color: #28a745; margin-left:8px; }
+[data-theme="dark"] .score-badge { background: rgba(40,167,69,0.12); color: #9ff0b8; }
+
 /* brief highlight when trays update */
 .tray-items.tray-flash { animation: trayFlash 420ms ease-in-out; }
 @keyframes trayFlash { 0% { background: rgba(255,255,0,0.12); } 100% { background: transparent; } }

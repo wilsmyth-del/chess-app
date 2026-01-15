@@ -13,7 +13,7 @@ api_bp = Blueprint("api", __name__)
 game = ChessGame()
 
 # Feature gate for v1: when True, hide Free Board / Study features and related endpoints
-V1_MODE = True
+V1_MODE = False
 
 from functools import wraps
 
@@ -161,6 +161,32 @@ def api_set_fen():
         return jsonify({"ok": True, "fen": game.get_fen()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@api_bp.route("/api/analyze", methods=["POST"])
+def api_analyze():
+    data = request.get_json() or {}
+    fen = data.get('fen')
+    if not fen:
+        return jsonify({'ok': False, 'error': 'missing_fen'}), 400
+    try:
+        try:
+            time_limit = float(data.get('time_limit', 0.5))
+        except Exception:
+            time_limit = 0.5
+        # Call the ChessGame analyze helper
+        res = game.analyze_position(fen, time_limit=time_limit)
+        if isinstance(res, dict) and res.get('error'):
+            return jsonify({'ok': False, 'error': res.get('error')}), 500
+        out = {'ok': True}
+        if isinstance(res, dict):
+            out.update(res)
+        else:
+            out['result'] = res
+        return jsonify(out)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 @api_bp.route("/api/engine_move", methods=["POST"])
 def api_engine_move():

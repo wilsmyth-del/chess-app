@@ -1,4 +1,25 @@
 # CHANGELOG — Chess (2026-01-01)
+## 2026-01-14 — Study / Hint features, Lobby, and UI polish
+
+- Added server-side analysis API `/api/analyze` and `ChessGame.analyze_position()` to return best move, score (centipawns / mate), and a short continuation. Requires a working Stockfish binary (see `STOCKFISH_PATH` or `vendor/stockfish.exe`).
+- Frontend Study & Hint system: `#analysis-controls` and a Hint button that requests analysis, draws arrow overlays on the board, and displays short hint text.
+- Hint budgets per persona persisted to `localStorage`: Grasshopper (unlimited), Student (3), Adept (2), Ninja (1), Sensei (0). Hints decrement and disable when exhausted.
+- Lobby / Start flow reworked: moved start controls into a `#setup-panel`, converted selects to pill-style selectors, and wired `#main-start-btn` to `startGame()` so New Game returns to Lobby.
+- Move History: added `#move-history-container` with `#move-list` and navigation buttons; ArrowLeft/ArrowRight/Home/End keys step plies and jump to start/end. History now saves intermediate plies immediately after local user moves for half-move navigation.
+- Material advantage scoring: captured-tray rendering computes piece values (P=1,N=3,B=3,R=5,Q=9) and displays a `+N` score badge beside the leading side's tray.
+- Captured trays moved into a fixed right sidebar and floating/anchoring logic removed for layout stability.
+- Theme: smart Theme Toggle (button reflects the next action) and default to dark mode on first load.
+- Removed developer `Tools` anchor and `Laboratory` checkbox from public UI for the v1.1 release.
+
+- 2026-01-14 (verification): confirmed server-side auto-save flow. A Flask test client call to `/api/resign`
+  returned a canonical PGN and a subsequent POST to `/api/save_pgn` returned a saved filename
+  (e.g. `game_20260114_172205.pgn`) written to the `games/` directory. Client helpers
+  `autoSaveGameToServer()` and `markAutoPgnSaved()` were added to `static/main.js`.
+Files changed in this session (high level): `templates/index.html`, `static/main.js`, `static/style.css`, `app/chess_core.py`, `app/api.py`
+
+Notes:
+- End-to-end verification of `/api/analyze` requires starting the Flask server and an available engine binary; if you see connection errors, ensure `python server.py` is running and `STOCKFISH_PATH` is set.
+- Suggested next step: start the server locally and test Hint flow in the browser — I can help debug any server logs you share.
 
 ## 2026-01-13 — Cleanup, flip removal, and verification
 

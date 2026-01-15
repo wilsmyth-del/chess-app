@@ -1681,9 +1681,9 @@ index fd5e520..efef847 100644
 +    }
 +  }
 +
-   // Save PGN button
-   const savePgnBtn = document.getElementById('save-pgn-btn');
-   if (savePgnBtn) {
+     // Save PGN button removed (server auto-saves; client handler cleaned)
+     // (previously: const savePgnBtn = document.getElementById('save-pgn-btn');)
+     if (false) {
 @@ -1071,8 +1482,8 @@ window.addEventListener('load', async () => {
        if (resultText.includes('Draw')) result = '1/2-1/2';
        try {
@@ -1938,10 +1938,9 @@ index f698f77..c8c208a 100644
 +                <div id="board"></div>
 +              </div>
 +
-+              <!-- Bottom controls: Export FEN and Download PGN (side-by-side under board) -->
++              <!-- Bottom controls: Export FEN (Download PGN removed; server auto-saves) -->
 +              <div class="board-bottom-controls">
 +                <button id="export-fen-btn" class="ctrl small">Export FEN</button>
-+                <button id="save-pgn-btn" class="ctrl small">Download PGN</button>
 +              </div>
 +
 +              <!-- Small floating Tools button (links to full Tools page) -->

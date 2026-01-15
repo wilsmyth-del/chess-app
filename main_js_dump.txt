@@ -1,3 +1,10 @@
+// Snapshot updated: 2026-01-14 — includes Study/Hint UI, `/api/analyze` usage,
+// and auto-save wiring. Snapshot verified locally via Flask test client: `/api/resign`
+// returned canonical PGN and `/api/save_pgn` saved the PGN to `games/` (sample file
+// `game_20260114_172205.pgn`).
+// move-history with half-move granularity, hint budgets, material scoring badges,
+// captured-trays moved to the right sidebar, and smart theme toggle (default dark).
+// Keep this file as a readable snapshot of `static/main.js` for auditing.
 let board = null;
 let game = null;
 let moveInFlight = false;

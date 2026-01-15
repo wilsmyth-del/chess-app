@@ -1,0 +1,10 @@
+[Event "Chess"]
+[Site "?"]
+[Date "2026.01.14"]
+[Round "?"]
+[White "Tester"]
+[Black "Engine"]
+[Result "0-1"]
+[Termination "resign"]
+
+0-1
