@@ -72,12 +72,14 @@ function handleSquareClick(square) {
   try {
     // 1. LOCK: Prevent moves if game hasn't started (unless in Free Board editor)
     if (!freeBoardMode) {
-      if (typeof uiState !== 'undefined' && uiState !== 'IN_GAME') {
+      if (AppState.getUIState() !== 'IN_GAME') {
+        AppState.setTapSourceSquare(null);
         tapSourceSquare = null;
         clearHighlights();
         return;
       }
-      if (gameOver) {
+      if (AppState.isGameOver()) {
+        AppState.setTapSourceSquare(null);
         tapSourceSquare = null;
         clearHighlights();
         return;
@@ -85,11 +87,13 @@ function handleSquareClick(square) {
     }
     // Scenario A: No piece selected yet
     if (!tapSourceSquare) {
-      const piece = game.get(square);
+      const g = AppState.getGame() || game;
+      const piece = (g && typeof g.get === 'function') ? g.get(square) : null;
       if (!piece) return; // tapped empty square, nothing to do
 
       // Only allow selecting pieces of the side to move
-      if (String(piece.color).toLowerCase() !== String(game.turn()).toLowerCase()) return;
+      if (String(piece.color).toLowerCase() !== String(g.turn()).toLowerCase()) return;
+      AppState.setTapSourceSquare(square);
       tapSourceSquare = square;
       highlightSquare(square);
       return;
@@ -104,8 +108,10 @@ function handleSquareClick(square) {
     }
 
     // If tapped another own piece, switch selection
-    const tappedPiece = game.get(square);
-    if (tappedPiece && String(tappedPiece.color).toLowerCase() === String(game.turn()).toLowerCase()) {
+    const g2 = AppState.getGame() || game;
+    const tappedPiece = (g2 && typeof g2.get === 'function') ? g2.get(square) : null;
+    if (tappedPiece && String(tappedPiece.color).toLowerCase() === String(g2.turn()).toLowerCase()) {
+      AppState.setTapSourceSquare(square);
       tapSourceSquare = square;
       highlightSquare(square);
       return;
@@ -239,26 +245,95 @@ function getEngineParams() {
 // Shared DOM element references (initialized on window load)
 let playerSelect = null;
 let enginePersonaSelect = null;
-let playBtn = null;
+// Centralized application state container
+const AppState = (function () {
+  /**
+   * @typedef {Object} AppStateShape
+   * @property {any} board
+   * @property {any} game
+   * @property {'SETUP'|'IN_GAME'|'RESULT'} uiState
+   * @property {boolean} moveInFlight
+   * @property {object|null} pendingPromotion
+   * @property {boolean} gameOver
+   * @property {boolean} autoPgnSaved
+   * @property {string|null} lastFinalPgn
+   * @property {boolean} playEngine
+   * @property {boolean} freeBoardMode
+   * @property {string|null} savedGameFenBeforeFree
+   * @property {number} hintsRemaining
+   * @property {string|null} tapSourceSquare
+   * @property {boolean} engineBusy
+   */
 
-// Debug/version stamp to detect wrong/old files being loaded in the browser
-// main.js loaded: v1.2 - turn lock + promo modal + dark mode
+  const state = {
+    board: null,
+    game: null,
+    uiState: 'SETUP',
+    moveInFlight: false,
+    pendingPromotion: null,
+    gameOver: false,
+    autoPgnSaved: false,
+    lastFinalPgn: null,
+    playEngine: false,
+    freeBoardMode: false,
+    savedGameFenBeforeFree: null,
+    hintsRemaining: 0,
+    tapSourceSquare: null,
+    engineBusy: false
+  };
 
-// --- Arrow drawing utilities (SVG overlay) ---------------------------------
-// Provide simple helpers to draw arrows between board squares for hints/analysis.
-const _ARROW_NS = 'http://www.w3.org/2000/svg';
-function ensureArrowLayer() {
-  const boardWrap = document.getElementById('board-container') || document.getElementById('board')?.parentElement;
-  if (!boardWrap) return null;
-  let svg = boardWrap.querySelector('svg.arrow-layer');
-  if (svg) return svg;
-  svg = document.createElementNS(_ARROW_NS, 'svg');
-  svg.className = 'arrow-layer';
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', '100%');
-  svg.style.position = 'absolute';
-  svg.style.left = '0'; svg.style.top = '0';
-  svg.style.pointerEvents = 'none';
+  const subs = {};
+
+  function emit(key, value) {
+    (subs[key] || []).forEach(fn => { try { fn(value); } catch (e) { console.warn('subscriber error', e); } });
+  }
+
+  return {
+    // Getters
+    getBoard() { return state.board; },
+    getGame() { return state.game; },
+    getUIState() { return state.uiState; },
+    isMoveInFlight() { return !!state.moveInFlight; },
+    getPendingPromotion() { return state.pendingPromotion; },
+    isGameOver() { return !!state.gameOver; },
+    getHintsRemaining() { return state.hintsRemaining; },
+
+    // Setters (will update compatibility globals below)
+    setBoard(b) { state.board = b; emit('board', b); window.board = b; },
+    setGame(g) { state.game = g; emit('game', g); window.game = g; },
+    setUIState(s) { if (['SETUP','IN_GAME','RESULT'].includes(s)) { state.uiState = s; emit('uiState', s); } else { console.warn('Invalid uiState', s); } },
+    setMoveInFlight(v) { state.moveInFlight = !!v; emit('moveInFlight', state.moveInFlight); },
+    setPendingPromotion(o) { state.pendingPromotion = o; emit('pendingPromotion', o); },
+    setGameOver(v) { state.gameOver = !!v; emit('gameOver', state.gameOver); },
+    setAutoPgnSaved(v) { state.autoPgnSaved = !!v; emit('autoPgnSaved', state.autoPgnSaved); },
+    setLastFinalPgn(s) { state.lastFinalPgn = s; emit('lastFinalPgn', s); },
+    setPlayEngine(v) { state.playEngine = !!v; emit('playEngine', state.playEngine); },
+    setFreeBoardMode(v) { state.freeBoardMode = !!v; emit('freeBoardMode', state.freeBoardMode); },
+    setSavedGameFenBeforeFree(s) { state.savedGameFenBeforeFree = s; emit('savedGameFenBeforeFree', s); },
+    setHintsRemaining(n) { state.hintsRemaining = Number(n) || 0; emit('hintsRemaining', state.hintsRemaining); },
+    setTapSourceSquare(sq) { state.tapSourceSquare = sq; emit('tapSourceSquare', sq); },
+    setEngineBusy(b) { state.engineBusy = !!b; emit('engineBusy', state.engineBusy); },
+
+    // subscribe/unsubscribe helpers
+    subscribe(key, fn) { if (!subs[key]) subs[key] = []; subs[key].push(fn); return () => { subs[key] = subs[key].filter(f => f !== fn); }; }
+  };
+})();
+
+// Backwards-compatible globals that map to AppState. Keep these for gradual refactor.
+let board = AppState.getBoard();
+let game = AppState.getGame();
+let uiState = AppState.getUIState(); // 'SETUP' | 'IN_GAME' | 'RESULT'
+let moveInFlight = AppState.isMoveInFlight();
+let pendingPromotion = AppState.getPendingPromotion(); // { source, target, fromPiece, prevFen }
+let gameOver = AppState.isGameOver();
+let autoPgnSaved = false;
+let lastFinalPgn = null;
+let playEngine = false;
+let freeBoardMode = false;
+let savedGameFenBeforeFree = AppState.getSavedGameFenBeforeFree ? AppState.getSavedGameFenBeforeFree() : null;
+let hintsRemaining = AppState.getHintsRemaining ? AppState.getHintsRemaining() : 0;
+let setUIState = (s, opts) => { AppState.setUIState(s); uiState = AppState.getUIState(); };
+let tapSourceSquare = AppState.getPendingPromotion ? AppState.getPendingPromotion() : null;
   svg.style.zIndex = '1000';
 
   // Define a simple arrowhead marker
@@ -736,8 +811,13 @@ function setFen(fen, pushHistory = false) {
     historyIndex = 0;
   }
 
-  game.load(fen);
-  board.position(fen);
+  // prefer AppState-stored game/board when available
+  const g = AppState.getGame() || game;
+  const b = AppState.getBoard() || board;
+  try { g.load(fen); } catch (e) { console.warn('setFen: game.load failed', e); }
+  try { if (b && typeof b.position === 'function') b.position(fen); } catch (e) { console.warn('setFen: board.position failed', e); }
+  // sync compatibility globals
+  game = g; board = b; AppState.setGame(g); AppState.setBoard(b);
   try { clearArrows(); } catch (e) {}
   const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = fen;
   updateResultIndicator();
@@ -1015,6 +1095,8 @@ async function postMove(uci) {
   if (freeBoardMode) {
     return Promise.resolve({ ok: false, error: 'free_board_active' });
   }
+  // mark move in flight in centralized state
+  AppState.setMoveInFlight(true);
 
   const engine = playEngine || false;
   const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
@@ -1037,6 +1119,7 @@ async function postMove(uci) {
   // If this move requests an engine reply, ensure we don't start another engine request
   if (payload.engine_reply) {
     if (engineBusy) {
+      AppState.setMoveInFlight(false);
       return Promise.resolve({ ok: false, error: 'engine_busy' });
     }
     setEngineBusyState(true);
@@ -1046,8 +1129,11 @@ async function postMove(uci) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
       });
-      return r.json();
+      const j = await r.json();
+      AppState.setMoveInFlight(false);
+      return j;
     } catch (e) {
+      AppState.setMoveInFlight(false);
       throw e;
     } finally {
       setEngineBusyState(false);
@@ -1060,7 +1146,14 @@ async function postMove(uci) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
   });
-  return r.json();
+  try {
+    const j = await r.json();
+    AppState.setMoveInFlight(false);
+    return j;
+  } catch (e) {
+    AppState.setMoveInFlight(false);
+    throw e;
+  }
 }
 
 async function postReset() {
