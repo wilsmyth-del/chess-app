@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, current_app, render_template, send_file, abort
+from flask import Blueprint, jsonify, request, current_app, render_template, send_file
 from app.chess_core import ChessGame, BOT_PRESETS
 from app.engine_personas import PERSONA_DEFAULT_ENGINE_TIME
 import os
@@ -42,6 +42,17 @@ def api_move():
     uci = data.get("uci")
     if not uci:
         return jsonify({"ok": False, "error": "missing_uci"}), 400
+    
+    # Store player info if provided (for PGN generation later)
+    if 'user_name' in data:
+        game.user_name = data.get('user_name') or 'Player'
+    if 'user_side' in data:
+        game.user_side = data.get('user_side') or 'white'
+    if 'opponent_name' in data:
+        game.opponent_name = data.get('opponent_name') or data.get('engine_persona') or 'Opponent'
+    elif 'engine_persona' in data:
+        game.opponent_name = data.get('engine_persona') or 'Opponent'
+    
     ok, err = game.make_move(uci)
     if not ok:
         return jsonify({"ok": False, "error": err}), 400

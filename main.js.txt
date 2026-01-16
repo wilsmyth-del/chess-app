@@ -1018,22 +1018,7 @@ async function postMove(uci) {
 
   const engine = playEngine || false;
   const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
-  
-  // Get player info for PGN generation
-  const userName = (document.getElementById('player-name')?.value || localStorage.getItem('playerName') || 'Player').trim();
-  const userSide = (document.getElementById('player-color')?.value || 'white').trim();
-  const opponentName = enginePersona || 'Opponent';
-  
-  const payload = { 
-    uci, 
-    engine_reply: engine, 
-    engine_time: engineTime, 
-    engine_skill: engineSkill, 
-    engine_persona: enginePersona,
-    user_name: userName,
-    user_side: userSide,
-    opponent_name: opponentName
-  };
+  const payload = { uci, engine_reply: engine, engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
   // If this move requests an engine reply, ensure we don't start another engine request
   if (payload.engine_reply) {
     if (engineBusy) {

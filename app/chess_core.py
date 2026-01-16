@@ -1,5 +1,4 @@
 import os
-import shutil
 import platform
 import chess
 import chess.engine
@@ -143,6 +142,10 @@ class ChessGame:
         self.result = None
         self.pgn_final = None
         self.ended_at = None
+        # Player info for PGN generation
+        self.user_name = 'Player'
+        self.opponent_name = 'Opponent'
+        self.user_side = 'white'  # 'white' or 'black'
 
     def check_game_over(self):
         """Return (is_over, reason, winner)
@@ -171,7 +174,7 @@ class ChessGame:
         except Exception:
             return False, None, None
 
-    def end_game(self, reason, winner=None, user_side=None, user_name='Player', opponent_name='Opponent'):
+    def end_game(self, reason, winner=None, user_side=None, user_name=None, opponent_name=None):
         self._load_state()  # Sync history first
 
         """Finalize the game exactly once and return payload with final PGN."""
@@ -180,10 +183,10 @@ class ChessGame:
 
         self.status = 'ENDED'
         
-        # 1. Normalize Inputs (Fixes the "White" vs "white" bug)
-        u_side = str(user_side).lower() if user_side else None
-        p_name = user_name if user_name else 'Player'
-        o_name = opponent_name if opponent_name else 'Opponent'
+        # 1. Normalize Inputs (Use stored info with parameter override)
+        u_side = str(user_side).lower() if user_side else getattr(self, 'user_side', 'white')
+        p_name = user_name if user_name else getattr(self, 'user_name', 'Player')
+        o_name = opponent_name if opponent_name else getattr(self, 'opponent_name', 'Opponent')
 
         # 2. Determine Result
         if reason == 'resign':
@@ -343,6 +346,11 @@ class ChessGame:
         self.result = None
         self.pgn_final = None
         self.ended_at = None
+        
+        # Reset player info to defaults
+        self.user_name = 'Player'
+        self.opponent_name = 'Opponent'
+        self.user_side = 'white'
         
         self._save_state()  # <--- FORCE SAVE (Wipe the whiteboard)
 
