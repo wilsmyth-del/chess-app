@@ -102,35 +102,34 @@ def derive_end_state(board: chess.Board):
 class ChessGame:
     def __init__(self):
         self.board = chess.Board()
-        self.engine_path = os.environ.get("STOCKFISH_PATH")
-        # If env var not provided, try to find stockfish on PATH (stockfish or stockfish.exe)
-        if not self.engine_path:
-            found = shutil.which('stockfish') or shutil.which('stockfish.exe')
-            self.engine_path = found
-        # Also check for a vendor/stockfish binary inside the project (Windows and unix names)
-        if not self.engine_path:
-            try:
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-                cand_win = os.path.join(root, 'vendor', 'stockfish.exe')
-                cand_unix = os.path.join(root, 'vendor', 'stockfish')
-                if os.path.exists(cand_win):
-                    self.engine_path = cand_win
-                elif os.path.exists(cand_unix):
-                    self.engine_path = cand_unix
-                else:
-                    # look for stockfish*.exe in project root (common paste/rename)
-                    import glob
-                    matches = glob.glob(os.path.join(root, 'stockfish*.exe'))
-                    if matches:
-                        self.engine_path = matches[0]
-            except Exception:
-                pass
-        # normalize path strings (strip whitespace/newlines) if present
-        try:
-            if self.engine_path and isinstance(self.engine_path, str):
-                self.engine_path = self.engine_path.strip()
-        except Exception:
-            pass
+
+        # =======================================================
+        # 1. SMART SWITCH: Detect OS and set Engine Path
+        # =======================================================
+        import platform
+        system = platform.system()  # Returns "Windows" or "Linux"
+
+        if system == "Windows":
+            # --- WINDOWS CONFIG (local machine) ---
+            # NOTE: update this path if you store Stockfish elsewhere.
+            self.engine_path = r"C:\Users\User\OneDrive\Desktop\chess tutor v1.1\vendor\stockfish-windows-x86-64-avx2.exe"
+
+            # Windows uses a local file for the game state
+            self.state_file_path = "game_state.fen"
+
+        else:
+            # --- LINUX CONFIG (server) ---
+            self.engine_path = "/home/wilsmyth/chess app/stockfish/stockfish-ubuntu-x86-64"
+
+            # Linux uses the RAM Disk (fast!) for game state
+            self.state_file_path = "/dev/shm/game_state.fen"
+
+        # =======================================================
+        # 2. MASTER OVERRIDE (Optional)
+        # =======================================================
+        # If the server has a specific environment variable set, strictly use that.
+        if os.environ.get("STOCKFISH_PATH"):
+            self.engine_path = os.environ.get("STOCKFISH_PATH")
 
         self._engine = None
         # Last best evaluation (centipawns) seen from engine analyses — used to detect
@@ -173,72 +172,78 @@ class ChessGame:
             return False, None, None
 
     def end_game(self, reason, winner=None, user_side=None, user_name='Player', opponent_name='Opponent'):
-        """Finalize the game exactly once and return payload with final PGN.
+        self._load_state()  # Sync history first
 
-        Idempotent: if already ended, returns existing stored payload.
-        reason: 'checkmate'|'draw'|'resign'
-        winner: optional 'white'|'black'
-        """
-        # Already finalized -> return stored
+        """Finalize the game exactly once and return payload with final PGN."""
         if getattr(self, 'status', None) == 'ENDED':
             return {'game_over': True, 'reason': self.end_reason, 'result': self.result, 'pgn': self.pgn_final}
 
-        # Set lifecycle fields
         self.status = 'ENDED'
-        # If caller explicitly provided a termination reason (e.g. 'resign'), honor it;
-        # otherwise derive from the board outcome.
+        
+        # 1. Normalize Inputs (Fixes the "White" vs "white" bug)
+        u_side = str(user_side).lower() if user_side else None
+        p_name = user_name if user_name else 'Player'
+        o_name = opponent_name if opponent_name else 'Opponent'
+
+        # 2. Determine Result
         if reason == 'resign':
             self.end_reason = 'resign'
-            if winner == 'white':
-                self.result = '1-0'
-            elif winner == 'black':
-                self.result = '0-1'
+            if winner:
+                w_lower = str(winner).lower()
+                if w_lower == 'white': self.result = '1-0'
+                elif w_lower == 'black': self.result = '0-1'
+                else: self.result = '*'
             else:
                 self.result = '*'
         else:
-            # derive authoritative end state from the board
             try:
                 res, term = derive_end_state(self.board)
                 if res is not None:
                     self.result = res
                     self.end_reason = term
                 else:
-                    # fallback to previous logic
                     self.end_reason = reason
                     self.result = self.board.result() if self.board.is_game_over() else '*'
             except Exception:
                 self.end_reason = reason
-                try:
-                    self.result = self.board.result() if self.board.is_game_over() else '*'
-                except Exception:
-                    self.result = '*'
+                self.result = '*'
 
-        # Build PGN from canonical move list (board.move_stack)
+        # 3. Build Clean PGN with Correct Names
         try:
             g = chess.pgn.Game()
-            g.headers['Event'] = 'Chess'
+            
+            # Metadata
+            g.headers['Event'] = 'Casual Game'
+            g.headers['Site'] = "Wil's Chess"
             g.headers['Date'] = datetime.datetime.now().strftime('%Y.%m.%d')
+            g.headers['Round'] = '1'
             g.headers['Result'] = self.result or '*'
-            # Include explicit Termination header when available
+            
             if self.end_reason:
                 g.headers['Termination'] = self.end_reason
-            # Player names if provided
-            if user_side == 'white':
-                g.headers['White'] = user_name
-                g.headers['Black'] = opponent_name
-            elif user_side == 'black':
-                g.headers['White'] = opponent_name
-                g.headers['Black'] = user_name
-            else:
-                g.headers['White'] = 'White'
-                g.headers['Black'] = 'Black'
 
+            # --- NAME LOGIC ---
+            # If user played White, they go in the White header.
+            if u_side == 'white':
+                g.headers['White'] = p_name
+                g.headers['Black'] = o_name
+            # If user played Black, they go in the Black header.
+            elif u_side == 'black':
+                g.headers['White'] = o_name
+                g.headers['Black'] = p_name
+            # Fallback: If side is unknown, we guess based on names or default
+            else:
+                g.headers['White'] = p_name if p_name != 'Player' else 'White'
+                g.headers['Black'] = o_name if o_name != 'Opponent' else 'Black'
+
+            # Add Moves
             node = g
             for mv in self.board.move_stack:
                 node = node.add_variation(mv)
+            
             exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
-            pgn_text = g.accept(exporter)
-            self.pgn_final = pgn_text
+            self.pgn_final = g.accept(exporter)
+            
         except Exception:
             self.pgn_final = None
 
@@ -249,6 +254,45 @@ class ChessGame:
 
         return {'game_over': True, 'reason': self.end_reason, 'result': self.result, 'pgn': self.pgn_final}
 
+    def _load_state(self):
+        """Read the game state (Move List) from the shared file."""
+        try:
+            if os.path.exists(self.state_file_path):
+                with open(self.state_file_path, "r") as f:
+                    content = f.read().strip()
+
+                # DETECT: Is this a custom setup (FEN) or a Move List?
+                if "/" in content:
+                    # It contains slashes, so it must be a FEN string (Custom Board)
+                    self.board.set_fen(content)
+                else:
+                    # It is a list of moves (Standard Game) - Replay them!
+                    self.board.reset()
+                    if content:
+                        for uci in content.split():
+                            if uci:
+                                self.board.push(chess.Move.from_uci(uci))
+        except Exception:
+            pass
+
+    def _save_state(self):
+        """Write the game state (Move List) to the shared file."""
+        try:
+            # Smart Save: 
+            # 1. If we have moves, save the Move List (Preserves History/PGN).
+            # 2. If no moves but board is custom, save FEN (Preserves Custom Setup).
+            if not self.board.move_stack and self.board.fen() != chess.STARTING_FEN:
+                 data = self.board.fen()
+            else:
+                 # Join all moves into a string like "e2e4 e7e5 g1f3"
+                 data = " ".join([m.uci() for m in self.board.move_stack])
+            
+            with open(self.state_file_path, "w") as f:
+                f.write(data)
+        except Exception:
+            pass
+
+
     def get_fen(self):
         return self.board.fen()
 
@@ -256,6 +300,12 @@ class ChessGame:
         return [m.uci() for m in self.board.legal_moves]
 
     def make_move(self, uci):
+        # 1. Sync Start: Read the shared whiteboard so we know the current board state
+        try:
+            self._load_state()
+        except Exception:
+            pass
+
         try:
             move = chess.Move.from_uci(uci)
         except Exception:
@@ -270,6 +320,13 @@ class ChessGame:
                     self.end_reason = term
             except Exception:
                 pass
+
+            # 2. Sync End: Update the whiteboard so the other workers see the move
+            try:
+                self._save_state()
+            except Exception:
+                pass
+
             return True, None
         return False, "illegal"
 
@@ -286,6 +343,8 @@ class ChessGame:
         self.result = None
         self.pgn_final = None
         self.ended_at = None
+        
+        self._save_state()  # <--- FORCE SAVE (Wipe the whiteboard)
 
     def _allowed_blunders_for_persona(self, persona: str):
         # defaults per persona
@@ -328,6 +387,12 @@ class ChessGame:
         engine_skill: optional integer skill level (0-20) to configure the engine if supported
         engine_persona: optional persona name string to apply persona-specific configuration
         """
+        # Ensure we sync state from the shared whiteboard before deciding
+        try:
+            self._load_state()
+        except Exception:
+            pass
+
         if not self.engine_path:
             return None
         # Use a fresh engine instance per request to avoid stale engine state.
@@ -410,6 +475,10 @@ class ChessGame:
                             if is_blunder:
                                 self._decrement_blunder(engine_persona)
                             self.board.push(mv)
+                            try:
+                                self._save_state()
+                            except Exception:
+                                pass
                             return mv.uci()
                 except Exception:
                     pass
@@ -418,6 +487,10 @@ class ChessGame:
             r = eng.play(self.board, chess.engine.Limit(time=float(limit)))
             if r and getattr(r, 'move', None):
                 self.board.push(r.move)
+                try:
+                    self._save_state()
+                except Exception:
+                    pass
                 return r.move.uci()
         finally:
             try:

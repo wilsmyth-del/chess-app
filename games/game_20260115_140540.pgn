@@ -1,0 +1,14 @@
+[Event "Casual Game"]
+[Site "Wil's Chess"]
+[Date "2026.01.15"]
+[Round "1"]
+[White "White"]
+[Black "Black"]
+[Result "0-1"]
+[Termination "checkmate"]
+
+1. d4 Nf6 2. Nf3 e6 3. Bf4 c5 4. dxc5 h6 5. e3 Na6 6. Bd3 g5 7. Nbd2 b6 8. Bg3
+Nb4 9. Bc4 Nc6 10. cxb6 d5 11. Bd3 Be7 12. b7 Nb4 13. Be2 Nd3+ 14. Bxd3 Bxb7
+15. Ne5 Qa5 16. O-O d4 17. exd4 O-O-O 18. Qe2 g4 19. Be4 Rd5 20. Bxd5 Qxd5 21.
+Qf3 gxf3 22. Ndxf3 Qe4 23. Ng4 a6 24. Ne3 Rf8 25. Nc4 h5 26. Nd6+ Bxd6 27. Bxd6
+Rg8 28. Rae1 Qxf3 29. Bb4 Bc6 30. Kh1 Qg4 31. h3 Qxg2# 0-1

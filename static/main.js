@@ -1,5 +1,6 @@
 let board = null;
 let game = null;
+let uiState = 'SETUP'; // Global state: 'SETUP' | 'IN_GAME' | 'RESULT'
 let moveInFlight = false;
 let pendingPromotion = null; // { source, target, fromPiece, prevFen }
 let gameOver = false;
@@ -15,6 +16,140 @@ let hintsRemaining = 0;
 
 // Expose UI state setter globally so top-level functions can call it
 let setUIState = null;
+// Tap-to-move state (mobile): stores the first tapped square when implementing tap-to-move
+let tapSourceSquare = null;
+
+/* Initialize board click handlers for mobile tap-to-move interactions.
+   Call `initBoardClickHandlers()` inside your `window.addEventListener('load', ...)` init block.
+   For now this only logs the tapped square and does not perform moves. */
+function initBoardClickHandlers() {
+  try {
+    const boardEl = document.getElementById('board') || document.getElementById('board-container');
+    if (!boardEl) return;
+
+    boardEl.addEventListener('click', function (ev) {
+      try {
+        const sqEl = ev.target.closest('.square-55d63');
+        if (!sqEl) return;
+
+        // Try common attributes first (some board libs include data-square)
+        let squareId = sqEl.dataset?.square || sqEl.getAttribute('data-square') || null;
+        if (!squareId) {
+          // Fallback: chessboard.js uses classes like 'square-e4'
+          const cls = Array.from(sqEl.classList).map(c => {
+            const m = c.match(/^square-([a-h][1-8])$/);
+            return m ? m[1] : null;
+          }).find(Boolean);
+          if (cls) squareId = cls;
+        }
+
+        if (squareId) handleSquareClick(squareId);
+      } catch (e) {
+        console.warn('tap handler error', e);
+      }
+    }, { passive: true });
+  } catch (e) { /* defensive no-op */ }
+}
+
+// Highlight helpers for tap-to-move
+function highlightSquare(square) {
+  try {
+    clearHighlights();
+    // chessboard.js uses `.square-55d63.square-e4` pattern
+    const sqEl = document.querySelector(`.square-55d63[data-square="${square}"]`) || document.querySelector(`.square-55d63.square-${square}`);
+    if (sqEl) sqEl.classList.add('highlight-selected');
+  } catch (e) { /* ignore */ }
+}
+
+function clearHighlights() {
+  try {
+    const prev = document.querySelectorAll('.square-55d63.highlight-selected');
+    prev.forEach(el => el.classList.remove('highlight-selected'));
+  } catch (e) { /* ignore */ }
+}
+
+// Handle square taps: select/deselect or attempt a move
+function handleSquareClick(square) {
+  try {
+    // 1. LOCK: Prevent moves if game hasn't started (unless in Free Board editor)
+    if (!freeBoardMode) {
+      if (typeof uiState !== 'undefined' && uiState !== 'IN_GAME') {
+        tapSourceSquare = null;
+        clearHighlights();
+        return;
+      }
+      if (gameOver) {
+        tapSourceSquare = null;
+        clearHighlights();
+        return;
+      }
+    }
+    // Scenario A: No piece selected yet
+    if (!tapSourceSquare) {
+      const piece = game.get(square);
+      if (!piece) return; // tapped empty square, nothing to do
+
+      // Only allow selecting pieces of the side to move
+      if (String(piece.color).toLowerCase() !== String(game.turn()).toLowerCase()) return;
+      tapSourceSquare = square;
+      highlightSquare(square);
+      return;
+    }
+
+    // Scenario B: piece already selected
+    if (tapSourceSquare === square) {
+      // Deselect
+      tapSourceSquare = null;
+      clearHighlights();
+      return;
+    }
+
+    // If tapped another own piece, switch selection
+    const tappedPiece = game.get(square);
+    if (tappedPiece && String(tappedPiece.color).toLowerCase() === String(game.turn()).toLowerCase()) {
+      tapSourceSquare = square;
+      highlightSquare(square);
+      return;
+    }
+
+    // Otherwise, attempt a move from tapSourceSquare -> square
+    // `attemptMove` is a placeholder and should return true if the move was made.
+    Promise.resolve(attemptMove(tapSourceSquare, square)).then(success => {
+      if (success) {
+        tapSourceSquare = null;
+        clearHighlights();
+      } else {
+        // invalid move -> deselect
+        tapSourceSquare = null;
+        clearHighlights();
+      }
+    }).catch(() => {
+      tapSourceSquare = null;
+      clearHighlights();
+    });
+  } catch (e) {
+    console.warn('handleSquareClick error', e);
+    tapSourceSquare = null;
+    clearHighlights();
+  }
+}
+
+// Placeholder for attempting a move; the real implementation will submit to server
+function attemptMove(from, to) {
+  try {
+    const moving = game.get(from);
+    if (!moving) return false;
+    // piece code like 'wP' expected by some callers
+    const pieceCode = (moving.color === 'w' ? 'w' : 'b') + String(moving.type || '').toUpperCase();
+    const res = handleGameDrop(from, to, pieceCode);
+    // handleGameDrop returns 'trash' for accepted drops, 'snapback' for invalid
+    if (res === 'trash') return true;
+    return false;
+  } catch (e) {
+    console.warn('attemptMove error', e);
+    return false;
+  }
+}
 
 // Move frequently-used helpers to top-level so they are not hidden in the load handler.
 /**
@@ -1081,7 +1216,15 @@ function handleGameDrop(source, target, piece) {
   // Block user moves while an engine request is in flight to avoid UI/server desync
   if (engineBusy && !freeBoardMode) { setStatus('Engine busy — try again'); return 'snapback'; }
 
-  if (target === 'offboard' || source === target) return rejectMove('No move');
+  if (target === 'offboard') return rejectMove('No move');
+
+  // Handles taps interpreted by the board as a drop onto the same square.
+  // Treat this as a selection (tap) rather than a no-op move: trigger selection
+  // logic and snap the piece back visually.
+  if (source === target) {
+    try { handleSquareClick(source); } catch (e) { /* ignore */ }
+    return 'snapback';
+  }
 
   // Don’t accept moves while server reply pending or promotion chooser open
   if (moveInFlight || pendingPromotion) return 'snapback';
@@ -1369,6 +1512,8 @@ window.addEventListener('load', async () => {
     onDrop: onDrop,
     pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png'
   });
+  // Initialize mobile tap handlers
+  try { initBoardClickHandlers(); } catch (e) { /* ignore */ }
   // Ensure the board uses the container width and resizes when tabs change
   try {
     const resizeBoard = () => { try { if (board && typeof board.resize === 'function') board.resize(); else if (board && typeof board.position === 'function') board.position(board.fen()); } catch(e){} };
@@ -1800,7 +1945,7 @@ window.addEventListener('load', async () => {
   setStatus(`${game.turn() === 'w' ? 'White' : 'Black'} to move`);
 
   // UI state: 'SETUP' | 'IN_GAME' | 'RESULT'
-  let uiState = 'SETUP';
+  uiState = 'SETUP';
   let lastFinalPgn = null;
 
   setUIState = function(state, info) {

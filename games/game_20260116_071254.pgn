@@ -1,0 +1,10 @@
+[Event "Casual Game"]
+[Site "Wil's Chess"]
+[Date "2026.01.16"]
+[Round "1"]
+[White "Tester"]
+[Black "Engine"]
+[Result "0-1"]
+[Termination "resign"]
+
+1. e4 e5 0-1
