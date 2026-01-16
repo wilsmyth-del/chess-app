@@ -1,0 +1,11 @@
+[Event "Casual Game"]
+[Site "Wil's Chess"]
+[Date "2026.01.16"]
+[Round "1"]
+[White "White"]
+[Black "Black"]
+[Result "1-0"]
+[Termination "checkmate"]
+
+1. d4 c5 2. Bf4 Na6 3. Nf3 g6 4. e3 Qb6 5. dxc5 Qb4+ 6. Qd2 Nh6 7. Qxb4 Ng8 8.
+Qxb7 Nc7 9. Qxa8 a6 10. Qxc8# 1-0
