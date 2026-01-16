@@ -242,7 +242,7 @@ let enginePersonaSelect = null;
 let playBtn = null;
 
 // Debug/version stamp to detect wrong/old files being loaded in the browser
-console.log('main.js loaded: v1.2 - turn lock + promo modal + dark mode');
+// main.js loaded: v1.2 - turn lock + promo modal + dark mode
 
 // --- Arrow drawing utilities (SVG overlay) ---------------------------------
 // Provide simple helpers to draw arrows between board squares for hints/analysis.
@@ -423,7 +423,6 @@ function setStatus(msg) {
   const t = new Date().toLocaleTimeString();
   const out = `[${t}] ${msg}`;
   if (el) el.textContent = out;
-  console.log('STATUS:', out);
 }
 
 // History management for FENs (server-authoritative positions)
@@ -634,7 +633,6 @@ async function autoSaveGameToServer(pgn, result) {
     });
     const data = await r.json();
     if (data && data.pgn_file) {
-      console.log('Auto-saved PGN:', data.pgn_file);
       setStatus(`Game Over (${result}) — Saved to server: ${data.pgn_file}`);
     }
   } catch (e) {
@@ -1015,18 +1013,15 @@ async function fetchState() {
 async function postMove(uci) {
   // If we're in free-board (editor) mode, do not submit moves to the live game/server
   if (freeBoardMode) {
-    console.debug('postMove refused: freeBoardMode active');
     return Promise.resolve({ ok: false, error: 'free_board_active' });
   }
 
   const engine = playEngine || false;
   const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
   const payload = { uci, engine_reply: engine, engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
-  console.debug('postMove payload', payload);
   // If this move requests an engine reply, ensure we don't start another engine request
   if (payload.engine_reply) {
     if (engineBusy) {
-      console.debug('postMove: engine busy, skipping engine-backed move request');
       return Promise.resolve({ ok: false, error: 'engine_busy' });
     }
     setEngineBusyState(true);
@@ -1061,14 +1056,11 @@ async function postReset() {
 async function postEngineMove() {
   // Don't request engine moves while editing positions in free-board mode
   if (freeBoardMode) {
-    console.debug('postEngineMove refused: freeBoardMode active');
     return null;
   }
   const { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona } = getEngineParams();
   const payload = { engine_time: engineTime, engine_skill: engineSkill, engine_persona: enginePersona };
-  console.debug('postEngineMove payload', payload);
   if (engineBusy) {
-    console.debug('postEngineMove: engineBusy, skipping');
     return null;
   }
   setEngineBusyState(true);
@@ -1383,7 +1375,6 @@ function onDragStart(source, piece, position, orientation) {
   // piece is like "wP", "bQ" in chessboard.js
   const turn = (game && typeof game.turn === 'function') ? String(game.turn()).toLowerCase() : 'w'; // 'w' or 'b'
   const pieceColor = (piece && piece[0]) ? String(piece[0]).toLowerCase() : null; // 'w' or 'b'
-  console.debug('onDragStart:', { piece, pieceColor, turn });
 
   // Allow free editing/drags when freeBoardMode is on (engine off)
   if (freeBoardMode) {
@@ -2054,8 +2045,6 @@ window.addEventListener('load', async () => {
 
     if (newGameBtn) {
       newGameBtn.addEventListener('click', async () => {
-        console.debug('Returning to Lobby...');
-
         // 1. Force Engine/Game Stop
         try { setPlayEngine(false); } catch (e) {}
         gameOver = false;
@@ -2519,14 +2508,11 @@ window.addEventListener('load', async () => {
         const v = (playerSelect && playerSelect.value) ? playerSelect.value : 'white';
         board.orientation(v);
       }
-      console.debug('setBoardOrientation', { playerColor: playerSelect && playerSelect.value, arg });
     } catch (e) { console.warn('setBoardOrientation failed', e); }
   }
 
   // Unified startGame using the Lobby inputs
   async function startGame() {
-    console.debug('Starting new game...');
-
     // 1. Gather settings from the Setup Panel
     const nameInput = document.getElementById('player-name');
     const colorInput = document.getElementById('player-color');
@@ -2582,7 +2568,6 @@ window.addEventListener('load', async () => {
     // ensure button is enabled and wired
     try { playBtn.disabled = false; } catch (e) {}
     playBtn.addEventListener('click', async (ev) => {
-      console.debug('playBtn clicked — current playEngine=', playEngine);
       try {
         if (!playEngine) {
           // start the game via unified entrypoint
