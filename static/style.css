@@ -131,9 +131,6 @@ html, body {
 /* Keep the board square using aspect-ratio where supported; fallback allows chessboard.js to size */
 #board { width: 100%; aspect-ratio: 1 / 1; height: auto; }
 
-.board-top-controls { display:flex; justify-content:flex-end; }
-.play-top { margin-bottom:6px; }
-
 .board-bottom-controls { display:flex; gap:8px; margin-top:8px; justify-content:center; }
 
 /* Anchored captured-trays when positioned below the board on left or right */

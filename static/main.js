@@ -9,7 +9,6 @@ let lastFinalPgn = null;
 // `playEngine` tracks whether a game (engine play) is active
 let playEngine = false;
 let freeBoardMode = false;
-let selectedPiece = null; // like 'wK' or 'bq'
 // saved game FEN when entering Free Board tab so we can restore later
 let savedGameFenBeforeFree = null;
 let hintsRemaining = 0;
