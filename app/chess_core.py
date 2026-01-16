@@ -1,5 +1,6 @@
 import os
 import shutil
+import platform
 import chess
 import chess.engine
 import chess.pgn
@@ -106,20 +107,19 @@ class ChessGame:
         # =======================================================
         # 1. SMART SWITCH: Detect OS and set Engine Path
         # =======================================================
-        import platform
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         system = platform.system()  # Returns "Windows" or "Linux"
 
         if system == "Windows":
             # --- WINDOWS CONFIG (local machine) ---
-            # NOTE: update this path if you store Stockfish elsewhere.
-            self.engine_path = r"C:\Users\User\OneDrive\Desktop\chess tutor v1.1\vendor\stockfish-windows-x86-64-avx2.exe"
+            # Use project-relative path to the bundled Windows Stockfish binary
+            self.engine_path = os.path.join(root, 'stockfish', 'stockfish-windows-x86-64-avx2.exe')
 
             # Windows uses a local file for the game state
             self.state_file_path = "game_state.fen"
-
         else:
             # --- LINUX CONFIG (server) ---
-            self.engine_path = "/home/wilsmyth/chess app/stockfish/stockfish-ubuntu-x86-64"
+            self.engine_path = os.path.join(root, 'stockfish', 'stockfish-ubuntu-x86-64')
 
             # Linux uses the RAM Disk (fast!) for game state
             self.state_file_path = "/dev/shm/game_state.fen"
