@@ -1,4 +1,13 @@
 # CHANGELOG — Chess (2026-01-01)
+## 2026-01-19 — Tap-to-move fix and drag visibility
+
+- **Fixed tap-to-move functionality**: Resolved double-triggering issue where tapping a piece would immediately select then deselect it. Removed duplicate `handleSquareClick()` call from `handleGameDrop` when source equals target.
+- **Fixed `getLocalGameStatus` not defined error**: Moved function from inside the window load handler to the top level so it's accessible during game moves. This was causing pieces to disappear during drag-and-drop.
+- **Improved piece visibility during drag**: Added CSS for dragged pieces with high z-index and full opacity. Added board configuration options (`dropOffBoard`, `moveSpeed`, `snapbackSpeed`, `snapSpeed`) for smoother animations.
+- **Enhanced click detection for tap-to-move**: Improved DOM traversal to find square elements from click targets, supporting proper square identification from piece images.
+
+Files changed: `static/main.js`, `static/style.css`
+
 ## 2026-01-14 — Study / Hint features, Lobby, and UI polish
 
 - Added server-side analysis API `/api/analyze` and `ChessGame.analyze_position()` to return best move, score (centipawns / mate), and a short continuation. Requires a working Stockfish binary (see `STOCKFISH_PATH` or `vendor/stockfish.exe`).

@@ -1,6 +1,10 @@
 /* Global state is managed by AppState. Backwards-compatible globals are
   declared later and mapped to AppState to support gradual refactoring. */
 
+// Debounce tracking for tap-to-move to prevent double-triggering
+let lastHandledSquare = null;
+let lastHandledTime = 0;
+
 /* Initialize board click handlers for mobile tap-to-move interactions.
    Call `initBoardClickHandlers()` inside your `window.addEventListener('load', ...)` init block.
    For now this only logs the tapped square and does not perform moves. */
@@ -35,6 +39,13 @@ function initBoardClickHandlers() {
           
           if (squareNameMatch) {
             console.log('[TAP-TO-MOVE] Square element found:', sqEl, 'Square:', squareNameMatch);
+            // Debounce: skip if this square was just handled by handleGameDrop
+            const now = Date.now();
+            if (lastHandledSquare === squareNameMatch && (now - lastHandledTime) < 300) {
+              console.log('[TAP-TO-MOVE] Debounced - already handled by handleGameDrop');
+              foundSquare = true;
+              break;
+            }
             handleSquareClick(squareNameMatch);
             foundSquare = true;
             break;
@@ -1496,10 +1507,13 @@ function handleGameDrop(source, target, piece) {
     return rejectMove('No move');
   }
 
-  // Same-square "drop" means user tapped a piece - let the click handler deal with it
-  // Don't call handleSquareClick here to avoid double-triggering (click event will also fire)
+  // Same-square "drop" means user tapped a piece - handle it here since click may not fire
   if (source === target) {
-    console.log("[handleGameDrop] Source equals target, ignoring (click handler will process)");
+    console.log("[handleGameDrop] Source equals target, calling handleSquareClick");
+    // Set debounce to prevent click handler from double-processing
+    lastHandledSquare = source;
+    lastHandledTime = Date.now();
+    try { handleSquareClick(source); } catch (e) { console.error('handleSquareClick error:', e); }
     return 'snapback';
   }
 
