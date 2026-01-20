@@ -706,57 +706,6 @@ function flashTrays() {
       setTimeout(() => el.classList.remove('tray-flash'), 500);
     });
   } catch (e) { console.error('Operation failed:', e); }
-
-  // Hint button listener (available when DOM ready)
-  try {
-    const hintBtn = document.getElementById('hint-btn');
-    if (hintBtn) {
-      hintBtn.addEventListener('click', async () => {
-        if (hintsRemaining <= 0) return;
-        if (typeof game === 'undefined' || gameOver || !playEngine) return;
-        setStatus('Asking Sensei for a hint...');
-        try {
-          const fen = (game && typeof game.fen === 'function') ? game.fen() : (document.getElementById('fen')?.textContent || '').trim();
-          const r = await fetch('/api/analyze', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ fen: fen, time_limit: 0.2 })
-          });
-          const data = await r.json();
-          if (data && data.ok && data.best_move) {
-            // 1. Decrement budget (unless infinite)
-            if (typeof hintsRemaining !== 'undefined' && hintsRemaining !== Infinity) {
-              hintsRemaining--;
-            }
-            // 2. Draw the arrow
-            const uci = data.best_move;
-            const source = uci.substring(0, 2);
-            const target = uci.substring(2, 4);
-            try { clearArrows(); } catch (e) { console.error('Operation failed:', e); }
-            try { drawArrow(source, target, '#ffdd00'); } catch (e) { try { drawArrowPercent(source, target, '#ffdd00'); } catch (e) { console.error('Operation failed:', e); } }
-
-            // 3. Update the button text and disabled state
-            const label = (hintsRemaining === Infinity) ? '∞' : hintsRemaining;
-            hintBtn.textContent = `💡 Hint (${label})`;
-            if (hintsRemaining <= 0) {
-              hintBtn.disabled = true;
-            }
-
-            // Persist updated budget
-            try { localStorage.setItem('hintsRemaining', String(hintsRemaining)); } catch (e) { console.error('Operation failed:', e); }
-
-            // 4. Show text feedback
-            const hintText = document.getElementById('hint-text'); if (hintText) hintText.textContent = `Sensei suggests: ${uci}`;
-            setStatus(`Hint: ${uci}`);
-          } else {
-            setStatus('Sensei returned no suggestion');
-          }
-        } catch (e) {
-          console.warn('Hint fetch failed', e);
-          setStatus('Sensei is silent (Network error)');
-        }
-      });
-    }
-  } catch (e) { console.error('Operation failed:', e); }
 }
 
 function fenPieceCounts(fen) {
@@ -2264,7 +2213,7 @@ window.addEventListener('load', async () => {
 
   // UI state: 'SETUP' | 'IN_GAME' | 'RESULT'
   uiState = 'SETUP';
-  let lastFinalPgn = null;
+  lastFinalPgn = null;  // Reset on load (uses global declared at top)
 
   setUIState = function(state, info) {
     uiState = state;

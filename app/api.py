@@ -234,30 +234,6 @@ def api_engine_move():
                         pass
         except Exception:
             pass
-    # Map an opponent preset (if provided) to canonical engine params from BOT_PRESETS.
-    # The preset will provide defaults for persona/skill/time when the caller
-    # did not explicitly supply those fields.
-    opponent_preset = data.get('opponent_preset')
-    if opponent_preset:
-        try:
-            preset = BOT_PRESETS.get(opponent_preset.lower())
-            if preset:
-                if engine_persona is None:
-                    engine_persona = preset.get('engine_persona')
-                # if engine_time was not passed explicitly, take preset time
-                if data.get('engine_time') is None and 'engine_time' in preset:
-                    try:
-                        engine_time = float(preset.get('engine_time', engine_time))
-                    except Exception:
-                        pass
-                # if engine_skill not provided explicitly, take preset skill
-                if data.get('engine_skill') is None and 'engine_skill' in preset:
-                    try:
-                        engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
-                    except Exception:
-                        pass
-        except Exception:
-            pass
     try:
         from app.engine_personas import is_persona_allowed
         if engine_persona and not is_persona_allowed(engine_persona):
@@ -270,21 +246,14 @@ def api_engine_move():
             engine_rng_seed = int(engine_rng_seed)
         except Exception:
             pass
-    # If a persona is provided, use internal default engine time for persona-driven replies
+    # If a persona is provided, use internal default engine time for persona-driven
+    # move selection. This avoids exposing the previous fast/deep UI which behaved
+    # inconsistently when personas used MultiPV sampling.
     if engine_persona:
         try:
             engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
         except Exception:
             pass
-    # If a persona is provided, use an internal default engine time for persona-driven
-    # move selection. This avoids exposing the previous fast/deep UI which behaved
-    # inconsistently when personas used MultiPV sampling. TODO: revisit timed MultiPV
-    # and provide a proper UI control later.
-    if engine_persona:
-        try:
-            engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
-        except Exception:
-            engine_time = float(engine_time)
 
     # Log debug to file
     try:
@@ -872,8 +841,6 @@ def api_simulate_batch():
     except Exception:
         csv_path = None
 
-    return jsonify({'ok': True, 'count': len(saved), 'files': saved, 'csv': os.path.basename(csv_path) if csv_path else None})
-
     # If we have multiple PGNs, write a combined PGN file
     combined_name = None
     try:
@@ -883,9 +850,8 @@ def api_simulate_batch():
             safe_bp = str(black_persona).replace(' ', '_')
             combined_name = f'batch_{safe_wp}_vs_{safe_bp}_{now2}.pgn'
             combined_path = os.path.join(outdir, combined_name)
-            # join pgns with blank lines
             with open(combined_path, 'w', encoding='utf-8') as cf:
-                for idx, pt in enumerate(pgn_texts):
+                for pt in pgn_texts:
                     cf.write(pt)
                     cf.write('\n\n')
     except Exception:

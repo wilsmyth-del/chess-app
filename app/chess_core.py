@@ -42,6 +42,12 @@ BOT_PRESETS = {
         'engine_skill': 5,
         'engine_time': 0.35,
     },
+    'ninja': {
+        'display_name': 'Ninja',
+        'engine_persona': 'ninja',
+        'engine_skill': 8,
+        'engine_time': 0.40,
+    },
     'sensei': {
         'display_name': 'Sensei',
         'engine_persona': 'sensei',
