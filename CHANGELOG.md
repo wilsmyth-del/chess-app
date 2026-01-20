@@ -1,11 +1,12 @@
 # CHANGELOG — Chess (2026-01-01)
-## 2026-01-20 — Code cleanup and bug fixes
+## 2026-01-20 — Code cleanup and production readiness
 
 - **Fixed unreachable code in batch simulation**: The combined PGN file logic in `api_simulate_batch()` was placed after a `return` statement and never executed. Moved it before the return so batch simulations now properly generate combined PGN files.
 - **Removed duplicate code in api.py**: Deleted duplicate `opponent_preset` handling block and duplicate `if engine_persona` block in `api_engine_move()` that were processing the same data twice.
 - **Added missing Ninja preset**: Added the `ninja` bot preset to `BOT_PRESETS` in `chess_core.py` to match the frontend persona options (was causing backend/frontend mismatch).
 - **Fixed shadowed variable in main.js**: Changed duplicate `let lastFinalPgn` declaration inside window.load to a simple assignment, preventing variable shadowing of the global.
 - **Removed misplaced hint listener**: Removed hint button event listener that was incorrectly embedded inside `flashTrays()` function. The listener is properly defined in the main initialization block.
+- **Removed debug output for production**: Removed all debug `print()` statements from backend, removed `_syncMainJsSnapshot()` dev-only function, and removed ~50 `console.log` debug statements from tap-to-move and handleGameDrop code. Reduces main.js by ~100 lines.
 
 Files changed: `app/api.py`, `app/chess_core.py`, `static/main.js`
 
