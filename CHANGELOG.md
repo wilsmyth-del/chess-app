@@ -1,4 +1,14 @@
 # CHANGELOG — Chess (2026-01-01)
+## 2026-01-20 — Code cleanup and bug fixes
+
+- **Fixed unreachable code in batch simulation**: The combined PGN file logic in `api_simulate_batch()` was placed after a `return` statement and never executed. Moved it before the return so batch simulations now properly generate combined PGN files.
+- **Removed duplicate code in api.py**: Deleted duplicate `opponent_preset` handling block and duplicate `if engine_persona` block in `api_engine_move()` that were processing the same data twice.
+- **Added missing Ninja preset**: Added the `ninja` bot preset to `BOT_PRESETS` in `chess_core.py` to match the frontend persona options (was causing backend/frontend mismatch).
+- **Fixed shadowed variable in main.js**: Changed duplicate `let lastFinalPgn` declaration inside window.load to a simple assignment, preventing variable shadowing of the global.
+- **Removed misplaced hint listener**: Removed hint button event listener that was incorrectly embedded inside `flashTrays()` function. The listener is properly defined in the main initialization block.
+
+Files changed: `app/api.py`, `app/chess_core.py`, `static/main.js`
+
 ## 2026-01-19 — Tap-to-move fix and drag visibility
 
 - **Fixed tap-to-move functionality**: Resolved double-triggering issue where tapping a piece would immediately select then deselect it. Removed duplicate `handleSquareClick()` call from `handleGameDrop` when source equals target.
