@@ -411,12 +411,8 @@ class ChessGame:
             return None
         # Use a fresh engine instance per request to avoid stale engine state.
         try:
-            print('ENGINE: launching transient engine for move')
             eng = chess.engine.SimpleEngine.popen_uci(self.engine_path)
-        except Exception as e:
-            print('ENGINE: transient engine launch failed', e)
-            import traceback
-            traceback.print_exc()
+        except Exception:
             return None
 
         try:

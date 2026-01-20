@@ -38,7 +38,6 @@ def api_state():
 @api_bp.route("/api/move", methods=["POST"])
 def api_move():
     data = request.get_json() or {}
-    print("REQUEST:", request.json)
     uci = data.get("uci")
     if not uci:
         return jsonify({"ok": False, "error": "missing_uci"}), 400
@@ -202,7 +201,6 @@ def api_analyze():
 @api_bp.route("/api/engine_move", methods=["POST"])
 def api_engine_move():
     data = request.get_json() or {}
-    print("REQUEST:", request.json)
     try:
         engine_time = float(data.get("engine_time", 0.1))
     except Exception:

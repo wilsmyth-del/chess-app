@@ -12,37 +12,31 @@ function initBoardClickHandlers() {
   try {
     const boardEl = document.getElementById('board') || document.getElementById('board-container');
     if (!boardEl) {
-      console.warn('[TAP-TO-MOVE] Board element not found!');
       return;
     }
-    console.log('[TAP-TO-MOVE] Click handler attached to:', boardEl);
 
     boardEl.addEventListener('click', function (ev) {
-      console.log('[TAP-TO-MOVE] Click detected on:', ev.target);
       try {
         // Find square element by looking up the DOM tree
         let sqEl = ev.target;
         let foundSquare = false;
-        
+
         // Traverse up the DOM tree to find a square element
         while (sqEl && sqEl !== boardEl) {
-          // Check if this element has a square class (any class matching square-XXXX or square-[a-h][1-8])
           const classList = Array.from(sqEl.classList);
-          
-          // First, try to extract square name from classes like 'square-e4'
+
+          // Extract square name from classes like 'square-e4'
           const squareNameMatch = classList
             .map(c => {
               const m = c.match(/^square-([a-h][1-8])$/);
               return m ? m[1] : null;
             })
             .find(Boolean);
-          
+
           if (squareNameMatch) {
-            console.log('[TAP-TO-MOVE] Square element found:', sqEl, 'Square:', squareNameMatch);
             // Debounce: skip if this square was just handled by handleGameDrop
             const now = Date.now();
             if (lastHandledSquare === squareNameMatch && (now - lastHandledTime) < 300) {
-              console.log('[TAP-TO-MOVE] Debounced - already handled by handleGameDrop');
               foundSquare = true;
               break;
             }
@@ -50,12 +44,8 @@ function initBoardClickHandlers() {
             foundSquare = true;
             break;
           }
-          
+
           sqEl = sqEl.parentElement;
-        }
-        
-        if (!foundSquare) {
-          console.log('[TAP-TO-MOVE] No square element found in click target ancestry');
         }
       } catch (e) {
         console.warn('tap handler error', e);
@@ -68,13 +58,9 @@ function initBoardClickHandlers() {
 function highlightSquare(square) {
   try {
     clearHighlights();
-    // Find the square element - it has both .square-55d63 (base style) and .square-e4 (position identifier)
     const sqEl = document.querySelector(`.square-${square}`);
     if (sqEl) {
       sqEl.classList.add('highlight-selected');
-      console.log("[TAP-TO-MOVE] Highlighted square:", square);
-    } else {
-      console.warn("[TAP-TO-MOVE] Could not find square element for:", square);
     }
   } catch (e) { console.error('Operation failed:', e); }
 }
@@ -89,51 +75,38 @@ function clearHighlights() {
 // Handle square taps: select/deselect or attempt a move
 function handleSquareClick(square) {
   try {
-    console.log("[TAP-TO-MOVE] handleSquareClick called with square:", square);
-    // 1. LOCK: Prevent moves if game hasn't started (unless in Free Board editor)
+    // Prevent moves if game hasn't started (unless in Free Board editor)
     if (!AppState.getFreeBoardMode()) {
       if (AppState.getUIState() !== 'IN_GAME') {
-        console.log("[TAP-TO-MOVE] BLOCKED: UIState is not IN_GAME, it's:", AppState.getUIState());
         AppState.setTapSourceSquare(null);
         clearHighlights();
         return;
       }
       if (AppState.isGameOver()) {
-        console.log("[TAP-TO-MOVE] BLOCKED: Game is over");
         AppState.setTapSourceSquare(null);
         clearHighlights();
         return;
       }
     }
+
     // Scenario A: No piece selected yet
     if (!AppState.getTapSourceSquare()) {
       const g = AppState.getGame();
-      if (!g) {
-        console.log("[TAP-TO-MOVE] BLOCKED: No game object found");
-        return;
-      }
+      if (!g) return;
       const piece = (typeof g.get === 'function') ? g.get(square) : null;
-      if (!piece) {
-        console.log("[TAP-TO-MOVE] BLOCKED: No piece at square", square);
-        return; // tapped empty square, nothing to do
-      }
+      if (!piece) return; // tapped empty square
 
-      console.log("[TAP-TO-MOVE] Piece found:", piece, "Turn:", g.turn());
       // Only allow selecting pieces of the side to move
       if (String(piece.color).toLowerCase() !== String(g.turn()).toLowerCase()) {
-        console.log("[TAP-TO-MOVE] BLOCKED: Wrong color. Piece is", piece.color, "but turn is", g.turn());
         return;
       }
-      console.log("[TAP-TO-MOVE] SUCCESS: Selecting piece at", square);
       AppState.setTapSourceSquare(square);
       highlightSquare(square);
       return;
     }
 
-    // Scenario B: piece already selected
+    // Scenario B: piece already selected - deselect if same square
     if (AppState.getTapSourceSquare() === square) {
-      // Deselect
-      console.log("[TAP-TO-MOVE] Deselecting piece at", square);
       AppState.setTapSourceSquare(null);
       clearHighlights();
       return;
@@ -141,30 +114,19 @@ function handleSquareClick(square) {
 
     // If tapped another own piece, switch selection
     const g2 = AppState.getGame();
-    if (!g2) {
-      console.log("[TAP-TO-MOVE] BLOCKED: No game object for move attempt");
-      return;
-    }
+    if (!g2) return;
     const tappedPiece = (typeof g2.get === 'function') ? g2.get(square) : null;
     if (tappedPiece && String(tappedPiece.color).toLowerCase() === String(g2.turn()).toLowerCase()) {
-      console.log("[TAP-TO-MOVE] Switching selection to", square);
       AppState.setTapSourceSquare(square);
       highlightSquare(square);
       return;
     }
 
     // Otherwise, attempt a move from tapSourceSquare -> square
-    console.log("[TAP-TO-MOVE] Attempting move from", AppState.getTapSourceSquare(), "to", square);
     const currentSource = AppState.getTapSourceSquare();
     Promise.resolve(attemptMove(currentSource, square)).then(success => {
-      if (success) {
-        AppState.setTapSourceSquare(null);
-        clearHighlights();
-      } else {
-        // invalid move -> deselect
-        AppState.setTapSourceSquare(null);
-        clearHighlights();
-      }
+      AppState.setTapSourceSquare(null);
+      clearHighlights();
     }).catch(() => {
       AppState.setTapSourceSquare(null);
       clearHighlights();
@@ -177,34 +139,21 @@ function handleSquareClick(square) {
 }
 
 
-// Placeholder for attempting a move; the real implementation will submit to server
+// Attempt a move via tap-to-move; submits to server via handleGameDrop
 function attemptMove(from, to) {
   try {
-    console.log("[TAP-TO-MOVE] attemptMove called: from=" + from + ", to=" + to);
     const gameObj = AppState.getGame();
-    if (!gameObj) {
-      console.warn('[TAP-TO-MOVE] attemptMove: no game object from AppState');
-      return false;
-    }
-    console.log("[TAP-TO-MOVE] Game object retrieved from AppState");
+    if (!gameObj) return false;
+
     const moving = gameObj.get(from);
-    if (!moving) {
-      console.warn('[TAP-TO-MOVE] No piece at source square:', from);
-      return false;
-    }
-    console.log("[TAP-TO-MOVE] Piece found at " + from + ":", moving);
-    // piece code like 'wP' expected by some callers
+    if (!moving) return false;
+
+    // piece code like 'wP' expected by handleGameDrop
     const pieceCode = (moving.color === 'w' ? 'w' : 'b') + String(moving.type || '').toUpperCase();
-    console.log("[TAP-TO-MOVE] Piece code:", pieceCode, "Calling handleGameDrop...");
     const res = handleGameDrop(from, to, pieceCode);
-    console.log("[TAP-TO-MOVE] handleGameDrop returned:", res);
+
     // handleGameDrop returns 'trash' for accepted drops, 'snapback' for invalid
-    if (res === 'trash') {
-      console.log("[TAP-TO-MOVE] Move succeeded!");
-      return true;
-    }
-    console.log("[TAP-TO-MOVE] Move failed (returned '" + res + "')");
-    return false;
+    return res === 'trash';
   } catch (e) {
     console.warn('attemptMove error', e);
     return false;
@@ -1097,34 +1046,6 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (e) { console.error('Operation failed:', e); }
 });
 
-// --- Auto-sync snapshot at session end -------------------------------------------------
-// When the user leaves the page, attempt to tell the server to write a snapshot
-// copy of the served `static/main.js` into the repo root as `main.js.txt`.
-function _syncMainJsSnapshot() {
-  try {
-    const url = '/api/sync_main_js';
-    // Try lightweight beacon first so it works during unload
-    if (navigator && typeof navigator.sendBeacon === 'function') {
-      try { navigator.sendBeacon(url); return; } catch (e) { /* fallthrough */ }
-    }
-    // Fallback to fetch with keepalive where supported
-    try {
-      fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
-    } catch (e) { console.error('Operation failed:', e); }
-  } catch (e) { console.error('Operation failed:', e); }
-}
-
-// Prefer beforeunload to capture navigations and tab/window close events
-window.addEventListener('beforeunload', () => {
-  _syncMainJsSnapshot();
-});
-
-// Also send a final attempt on pagehide (better for some browsers)
-window.addEventListener('pagehide', () => {
-  _syncMainJsSnapshot();
-});
-
-
 function updateResultIndicator() {
   const el = document.getElementById('result-indicator');
   if (!el || !game) return;
@@ -1443,22 +1364,18 @@ async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
 
 // Handle piece drops during a live game (legal move checks, promotions, submitUci)
 function handleGameDrop(source, target, piece) {
-  console.log("[handleGameDrop] Called with source=" + source + ", target=" + target + ", piece=" + piece);
   // Block user moves while an engine request is in flight to avoid UI/server desync
-  if (engineBusy && !freeBoardMode) { 
-    console.warn("[handleGameDrop] Blocked: engine busy"); 
-    setStatus('Engine busy  - try again'); 
-    return 'snapback'; 
+  if (engineBusy && !freeBoardMode) {
+    setStatus('Engine busy  - try again');
+    return 'snapback';
   }
 
   if (target === 'offboard') {
-    console.log("[handleGameDrop] Target is offboard");
     return rejectMove('No move');
   }
 
   // Same-square "drop" means user tapped a piece - handle it here since click may not fire
   if (source === target) {
-    console.log("[handleGameDrop] Source equals target, calling handleSquareClick");
     // Set debounce to prevent click handler from double-processing
     lastHandledSquare = source;
     lastHandledTime = Date.now();
@@ -1468,20 +1385,15 @@ function handleGameDrop(source, target, piece) {
 
   // Don't accept moves while server reply pending or promotion chooser open
   if (moveInFlight || pendingPromotion) {
-    console.warn("[handleGameDrop] Blocked: moveInFlight=" + moveInFlight + ", pendingPromotion=" + (pendingPromotion ? 'YES' : 'NO'));
     return 'snapback';
   }
 
-  console.log("[handleGameDrop] Checking piece at source square...");
   const moving = game.get(source);
   if (!moving) {
-    console.warn("[handleGameDrop] No piece at source square", source);
     return rejectMove('No piece');
   }
-  console.log("[handleGameDrop] Piece found:", moving);
 
   if (String(moving.color).toLowerCase() !== String(game.turn()).toLowerCase()) {
-    console.warn("[handleGameDrop] Wrong color to move");
     return rejectMove('Wrong side to move');
   }
 
@@ -1493,16 +1405,12 @@ function handleGameDrop(source, target, piece) {
      (fromPiece.color === 'b' && target[1] === '1'));
 
   const prevFen = game.fen();
-  console.log("[handleGameDrop] prevFen:", prevFen);
 
-  // HARD legality gate  - no side effects
-  console.log("[handleGameDrop] Checking legality...");
+  // Legality gate - no side effects
   const legal = game.move({ from: source, to: target, promotion: 'q' });
   if (legal === null) {
-    console.warn("[handleGameDrop] Illegal move");
     return rejectMove('Illegal move');
   }
-  console.log("[handleGameDrop] Move is legal, undoing for now...");
   game.undo();
 
   // Promotion: open modal, but onDrop MUST return immediately
@@ -1772,15 +1680,13 @@ window.addEventListener('load', async () => {
     snapSpeed: 100
   });
   // Initialize mobile tap handlers after board renders
-  setTimeout(() => { 
-    console.log('[INIT] Attempting to initialize tap-to-move handlers...');
-    try { 
-      initBoardClickHandlers(); 
-      console.log('[INIT] Tap-to-move initialization complete');
-    } catch (e) { 
-      console.error('[INIT] Failed to initialize tap-to-move:', e); 
-    } 
-  }, 500); // Increased delay to 500ms
+  setTimeout(() => {
+    try {
+      initBoardClickHandlers();
+    } catch (e) {
+      console.error('Failed to initialize tap-to-move:', e);
+    }
+  }, 500);
   // Ensure the board uses the container width and resizes when tabs change
   try {
     const resizeBoard = () => { try { if (board && typeof board.resize === 'function') board.resize(); else if (board && typeof board.position === 'function') board.position(board.fen()); } catch(e){} };
