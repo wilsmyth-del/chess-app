@@ -1,22 +1,5 @@
-let board = null;
-let game = null;
-let uiState = 'SETUP'; // Global state: 'SETUP' | 'IN_GAME' | 'RESULT'
-let moveInFlight = false;
-let pendingPromotion = null; // { source, target, fromPiece, prevFen }
-let gameOver = false;
-let autoPgnSaved = false;
-let lastFinalPgn = null;
-// `playEngine` tracks whether a game (engine play) is active
-let playEngine = false;
-let freeBoardMode = false;
-// saved game FEN when entering Free Board tab so we can restore later
-let savedGameFenBeforeFree = null;
-let hintsRemaining = 0;
-
-// Expose UI state setter globally so top-level functions can call it
-let setUIState = null;
-// Tap-to-move state (mobile): stores the first tapped square when implementing tap-to-move
-let tapSourceSquare = null;
+/* Global state is managed by AppState. Backwards-compatible globals are
+  declared later and mapped to AppState to support gradual refactoring. */
 
 /* Initialize board click handlers for mobile tap-to-move interactions.
    Call `initBoardClickHandlers()` inside your `window.addEventListener('load', ...)` init block.
@@ -24,131 +7,192 @@ let tapSourceSquare = null;
 function initBoardClickHandlers() {
   try {
     const boardEl = document.getElementById('board') || document.getElementById('board-container');
-    if (!boardEl) return;
+    if (!boardEl) {
+      console.warn('[TAP-TO-MOVE] Board element not found!');
+      return;
+    }
+    console.log('[TAP-TO-MOVE] Click handler attached to:', boardEl);
 
     boardEl.addEventListener('click', function (ev) {
+      console.log('[TAP-TO-MOVE] Click detected on:', ev.target);
       try {
-        const sqEl = ev.target.closest('.square-55d63');
-        if (!sqEl) return;
-
-        // Try common attributes first (some board libs include data-square)
-        let squareId = sqEl.dataset?.square || sqEl.getAttribute('data-square') || null;
-        if (!squareId) {
-          // Fallback: chessboard.js uses classes like 'square-e4'
-          const cls = Array.from(sqEl.classList).map(c => {
-            const m = c.match(/^square-([a-h][1-8])$/);
-            return m ? m[1] : null;
-          }).find(Boolean);
-          if (cls) squareId = cls;
+        // Find square element by looking up the DOM tree
+        let sqEl = ev.target;
+        let foundSquare = false;
+        
+        // Traverse up the DOM tree to find a square element
+        while (sqEl && sqEl !== boardEl) {
+          // Check if this element has a square class (any class matching square-XXXX or square-[a-h][1-8])
+          const classList = Array.from(sqEl.classList);
+          
+          // First, try to extract square name from classes like 'square-e4'
+          const squareNameMatch = classList
+            .map(c => {
+              const m = c.match(/^square-([a-h][1-8])$/);
+              return m ? m[1] : null;
+            })
+            .find(Boolean);
+          
+          if (squareNameMatch) {
+            console.log('[TAP-TO-MOVE] Square element found:', sqEl, 'Square:', squareNameMatch);
+            handleSquareClick(squareNameMatch);
+            foundSquare = true;
+            break;
+          }
+          
+          sqEl = sqEl.parentElement;
         }
-
-        if (squareId) handleSquareClick(squareId);
+        
+        if (!foundSquare) {
+          console.log('[TAP-TO-MOVE] No square element found in click target ancestry');
+        }
       } catch (e) {
         console.warn('tap handler error', e);
       }
     }, { passive: true });
-  } catch (e) { /* defensive no-op */ }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 // Highlight helpers for tap-to-move
 function highlightSquare(square) {
   try {
     clearHighlights();
-    // chessboard.js uses `.square-55d63.square-e4` pattern
-    const sqEl = document.querySelector(`.square-55d63[data-square="${square}"]`) || document.querySelector(`.square-55d63.square-${square}`);
-    if (sqEl) sqEl.classList.add('highlight-selected');
-  } catch (e) { /* ignore */ }
+    // Find the square element - it has both .square-55d63 (base style) and .square-e4 (position identifier)
+    const sqEl = document.querySelector(`.square-${square}`);
+    if (sqEl) {
+      sqEl.classList.add('highlight-selected');
+      console.log("[TAP-TO-MOVE] Highlighted square:", square);
+    } else {
+      console.warn("[TAP-TO-MOVE] Could not find square element for:", square);
+    }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 function clearHighlights() {
   try {
     const prev = document.querySelectorAll('.square-55d63.highlight-selected');
     prev.forEach(el => el.classList.remove('highlight-selected'));
-  } catch (e) { /* ignore */ }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 // Handle square taps: select/deselect or attempt a move
 function handleSquareClick(square) {
   try {
+    console.log("[TAP-TO-MOVE] handleSquareClick called with square:", square);
     // 1. LOCK: Prevent moves if game hasn't started (unless in Free Board editor)
-    if (!freeBoardMode) {
+    if (!AppState.getFreeBoardMode()) {
       if (AppState.getUIState() !== 'IN_GAME') {
+        console.log("[TAP-TO-MOVE] BLOCKED: UIState is not IN_GAME, it's:", AppState.getUIState());
         AppState.setTapSourceSquare(null);
-        tapSourceSquare = null;
         clearHighlights();
         return;
       }
       if (AppState.isGameOver()) {
+        console.log("[TAP-TO-MOVE] BLOCKED: Game is over");
         AppState.setTapSourceSquare(null);
-        tapSourceSquare = null;
         clearHighlights();
         return;
       }
     }
     // Scenario A: No piece selected yet
-    if (!tapSourceSquare) {
-      const g = AppState.getGame() || game;
-      const piece = (g && typeof g.get === 'function') ? g.get(square) : null;
-      if (!piece) return; // tapped empty square, nothing to do
+    if (!AppState.getTapSourceSquare()) {
+      const g = AppState.getGame();
+      if (!g) {
+        console.log("[TAP-TO-MOVE] BLOCKED: No game object found");
+        return;
+      }
+      const piece = (typeof g.get === 'function') ? g.get(square) : null;
+      if (!piece) {
+        console.log("[TAP-TO-MOVE] BLOCKED: No piece at square", square);
+        return; // tapped empty square, nothing to do
+      }
 
+      console.log("[TAP-TO-MOVE] Piece found:", piece, "Turn:", g.turn());
       // Only allow selecting pieces of the side to move
-      if (String(piece.color).toLowerCase() !== String(g.turn()).toLowerCase()) return;
+      if (String(piece.color).toLowerCase() !== String(g.turn()).toLowerCase()) {
+        console.log("[TAP-TO-MOVE] BLOCKED: Wrong color. Piece is", piece.color, "but turn is", g.turn());
+        return;
+      }
+      console.log("[TAP-TO-MOVE] SUCCESS: Selecting piece at", square);
       AppState.setTapSourceSquare(square);
-      tapSourceSquare = square;
       highlightSquare(square);
       return;
     }
 
     // Scenario B: piece already selected
-    if (tapSourceSquare === square) {
+    if (AppState.getTapSourceSquare() === square) {
       // Deselect
-      tapSourceSquare = null;
+      console.log("[TAP-TO-MOVE] Deselecting piece at", square);
+      AppState.setTapSourceSquare(null);
       clearHighlights();
       return;
     }
 
     // If tapped another own piece, switch selection
-    const g2 = AppState.getGame() || game;
-    const tappedPiece = (g2 && typeof g2.get === 'function') ? g2.get(square) : null;
+    const g2 = AppState.getGame();
+    if (!g2) {
+      console.log("[TAP-TO-MOVE] BLOCKED: No game object for move attempt");
+      return;
+    }
+    const tappedPiece = (typeof g2.get === 'function') ? g2.get(square) : null;
     if (tappedPiece && String(tappedPiece.color).toLowerCase() === String(g2.turn()).toLowerCase()) {
+      console.log("[TAP-TO-MOVE] Switching selection to", square);
       AppState.setTapSourceSquare(square);
-      tapSourceSquare = square;
       highlightSquare(square);
       return;
     }
 
     // Otherwise, attempt a move from tapSourceSquare -> square
-    // `attemptMove` is a placeholder and should return true if the move was made.
-    Promise.resolve(attemptMove(tapSourceSquare, square)).then(success => {
+    console.log("[TAP-TO-MOVE] Attempting move from", AppState.getTapSourceSquare(), "to", square);
+    const currentSource = AppState.getTapSourceSquare();
+    Promise.resolve(attemptMove(currentSource, square)).then(success => {
       if (success) {
-        tapSourceSquare = null;
+        AppState.setTapSourceSquare(null);
         clearHighlights();
       } else {
         // invalid move -> deselect
-        tapSourceSquare = null;
+        AppState.setTapSourceSquare(null);
         clearHighlights();
       }
     }).catch(() => {
-      tapSourceSquare = null;
+      AppState.setTapSourceSquare(null);
       clearHighlights();
     });
   } catch (e) {
-    console.warn('handleSquareClick error', e);
-    tapSourceSquare = null;
+    console.error('handleSquareClick error:', e);
+    AppState.setTapSourceSquare(null);
     clearHighlights();
   }
 }
 
+
 // Placeholder for attempting a move; the real implementation will submit to server
 function attemptMove(from, to) {
   try {
-    const moving = game.get(from);
-    if (!moving) return false;
+    console.log("[TAP-TO-MOVE] attemptMove called: from=" + from + ", to=" + to);
+    const gameObj = AppState.getGame();
+    if (!gameObj) {
+      console.warn('[TAP-TO-MOVE] attemptMove: no game object from AppState');
+      return false;
+    }
+    console.log("[TAP-TO-MOVE] Game object retrieved from AppState");
+    const moving = gameObj.get(from);
+    if (!moving) {
+      console.warn('[TAP-TO-MOVE] No piece at source square:', from);
+      return false;
+    }
+    console.log("[TAP-TO-MOVE] Piece found at " + from + ":", moving);
     // piece code like 'wP' expected by some callers
     const pieceCode = (moving.color === 'w' ? 'w' : 'b') + String(moving.type || '').toUpperCase();
+    console.log("[TAP-TO-MOVE] Piece code:", pieceCode, "Calling handleGameDrop...");
     const res = handleGameDrop(from, to, pieceCode);
+    console.log("[TAP-TO-MOVE] handleGameDrop returned:", res);
     // handleGameDrop returns 'trash' for accepted drops, 'snapback' for invalid
-    if (res === 'trash') return true;
+    if (res === 'trash') {
+      console.log("[TAP-TO-MOVE] Move succeeded!");
+      return true;
+    }
+    console.log("[TAP-TO-MOVE] Move failed (returned '" + res + "')");
     return false;
   } catch (e) {
     console.warn('attemptMove error', e);
@@ -156,42 +200,134 @@ function attemptMove(from, to) {
   }
 }
 
-// Move frequently-used helpers to top-level so they are not hidden in the load handler.
+
+// ============================================================================
+// CONSTANTS & CONFIGURATION
+// ============================================================================
+
 /**
+ * Bot difficulty profiles - Single source of truth for persona configuration
+ * Each profile defines engine parameters and hint availability
+ * @property {number} skill - UCI engine skill level (0-20, higher is stronger)
+ * @property {number} time - Time limit per move in seconds
+ * @property {number} hints - Number of hints available (Infinity for unlimited)
+ * @property {string} description - User-friendly description of difficulty level
+ * 
  * BOT ARCHITECTURE:
- * 1. THE BASE: 'skill' and 'time' set the UCI engine's hard limits (Elo/Depth).
- * 2. THE PERSONA: The 'name' (e.g. 'Grasshopper') is sent to the server.
+ * 1. THE BASE: 'skill' and 'time' set the UCI engine's hard limits (Elo/Depth)
+ * 2. THE PERSONA: The 'name' (e.g. 'Grasshopper') is sent to the server
  *    The server uses this name to apply a specific probability curve to move selection
- *    (e.g., favoring blunders vs. best moves).
+ *    (e.g., favoring blunders vs. best moves)
  */
-// Bot profiles used by applyBotProfile — single source of truth for persona -> engine params
-const botProfiles = {
-  'Grasshopper': { skill: 0, time: 0.1 },
-  'Student':     { skill: 5, time: 0.5 },
-  'Adept':       { skill: 10, time: 1.0 },
-  'Ninja':       { skill: 15, time: 2.0 },
-  'Sensei':      { skill: 20, time: 3.0 }
+const BOT_PROFILES = {
+  'Grasshopper': { 
+    skill: 0, 
+    time: 0.1, 
+    hints: Infinity, 
+    description: 'Beginner - makes obvious mistakes' 
+  },
+  'Student': { 
+    skill: 5, 
+    time: 0.5, 
+    hints: 3, 
+    description: 'Learning - still developing' 
+  },
+  'Adept': { 
+    skill: 10, 
+    time: 1.0, 
+    hints: 2, 
+    description: 'Intermediate - solid play' 
+  },
+  'Ninja': { 
+    skill: 15, 
+    time: 2.0, 
+    hints: 1, 
+    description: 'Advanced - strong tactical awareness' 
+  },
+  'Sensei': { 
+    skill: 20, 
+    time: 3.0, 
+    hints: 0, 
+    description: 'Expert - master level play' 
+  }
 };
 
+// Backwards compatibility alias
+const botProfiles = BOT_PROFILES;
+
+/**
+ * Applies a bot difficulty profile to the engine
+ * @param {string} name - Name of bot profile (Grasshopper, Student, Adept, Ninja, or Sensei)
+ * @returns {Object|null} The bot profile config or null if not found
+ */
 function applyBotProfile(name) {
-  // Minimal helper: return the profile object for a persona name.
-  // DOM updates are intentionally removed — `getEngineParams` should drive engine settings.
   if (!name) return null;
-  return botProfiles[name] || null;
+  return BOT_PROFILES[name] || null;
 }
 
-// Guard to prevent concurrent engine requests and UI desync
-let engineBusy = false;
-
-function setEngineBusyState(b) {
-  engineBusy = !!b;
+/**
+ * Centralized local game status helper.
+ * Returns: { over: boolean, result: '1-0'|'0-1'|'1/2-1/2'|'*', resultText: string }
+ */
+function getLocalGameStatus() {
   try {
-    // Do NOT disable the play/end button here — it must remain clickable to end games.
-    const persona = document.getElementById('engine-persona'); if (persona) persona.disabled = engineBusy;
-    const skill = document.getElementById('engine-skill'); if (skill) skill.disabled = engineBusy;
-    const time = document.getElementById('engine-time'); if (time) time.disabled = engineBusy;
-  } catch (e) { /* ignore UI toggles failing */ }
+    const g = AppState.getGame() || game;
+    if (!g) return { over: false, result: '*', resultText: '' };
+    // Check checkmate first
+    if (g.in_checkmate && g.in_checkmate()) {
+      const winner = g.turn() === 'w' ? 'Black' : 'White';
+      const result = winner === 'White' ? '1-0' : '0-1';
+      const resultText = `${winner} wins (checkmate)`;
+      return { over: true, result, resultText };
+    }
+    // Stalemate
+    if (g.in_stalemate && g.in_stalemate()) {
+      return { over: true, result: '1/2-1/2', resultText: 'Draw (stalemate)' };
+    }
+    // Threefold repetition
+    if (g.in_threefold_repetition && g.in_threefold_repetition()) {
+      return { over: true, result: '1/2-1/2', resultText: 'Draw (threefold repetition)' };
+    }
+    // Insufficient material
+    if (g.insufficient_material && g.insufficient_material()) {
+      return { over: true, result: '1/2-1/2', resultText: 'Draw (insufficient material)' };
+    }
+    // Generic draw (50-move rule, etc.)
+    if (g.in_draw && g.in_draw()) {
+      return { over: true, result: '1/2-1/2', resultText: 'Draw' };
+    }
+    return { over: false, result: '*', resultText: '' };
+  } catch (e) {
+    console.warn('getLocalGameStatus failed', e);
+    return { over: false, result: '*', resultText: '' };
+  }
 }
+
+
+
+// ============================================================================
+// ENGINE CONTROL & UI UPDATES
+// ============================================================================
+
+/**
+ * Updates the visual state of the engine control buttons
+ * @param {boolean} busy - Whether the engine is currently processing
+ */
+function setEngineBusyState(b) {
+  AppState.setEngineBusy(b);
+  try {
+    // Do NOT disable the play/end button here  - it must remain clickable to end games.
+    const persona = document.getElementById('engine-persona'); 
+    if (persona) persona.disabled = AppState.getEngineBusy();
+    const skill = document.getElementById('engine-skill'); 
+    if (skill) skill.disabled = AppState.getEngineBusy();
+    const time = document.getElementById('engine-time'); 
+    if (time) time.disabled = AppState.getEngineBusy();
+  } catch (e) { 
+    console.error('Error updating engine controls:', e);
+  }
+}
+
 
 // Update player/opponent display elements (kept small and defensive).
 function updatePlayersDisplay() {
@@ -208,7 +344,7 @@ function updatePlayersDisplay() {
     if (personaIndicator) personaIndicator.textContent = `Persona: ${personaName || '(none)'}`;
     if (playerLabel) playerLabel.textContent = playerName;
     if (opponentLabel) opponentLabel.textContent = (oppEl && oppEl.value) ? oppEl.value : (playEngine ? 'Engine' : 'Opponent');
-  } catch (e) { /* defensive no-op */ }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 // Simple theme applier (kept defensive). Placed top-level so callers in init can use it.
@@ -219,7 +355,7 @@ function applyTheme(name) {
     doc.setAttribute('data-theme', name);
     // update an optional theme icon/button for feedback
     const themeIcon = document.getElementById('theme-icon');
-    if (themeIcon) themeIcon.textContent = (name === 'dark') ? '🌙' : '☀️';
+    if (themeIcon) themeIcon.textContent = (name === 'dark') ? 'ðŸŒ™' : 'â˜€ï¸';
   } catch (e) {
     /* ignore theme apply failures */
   }
@@ -288,36 +424,42 @@ const AppState = (function () {
     (subs[key] || []).forEach(fn => { try { fn(value); } catch (e) { console.warn('subscriber error', e); } });
   }
 
-  return {
+return {
     // Getters
     getBoard() { return state.board; },
     getGame() { return state.game; },
     getUIState() { return state.uiState; },
     isMoveInFlight() { return !!state.moveInFlight; },
     getPendingPromotion() { return state.pendingPromotion; },
+    getSavedGameFenBeforeFree() { return state.savedGameFenBeforeFree; },
     isGameOver() { return !!state.gameOver; },
     getHintsRemaining() { return state.hintsRemaining; },
+    getTapSourceSquare() { return state.tapSourceSquare; },
+    getFreeBoardMode() { return !!state.freeBoardMode; },
+    getPlayEngine() { return !!state.playEngine; },
+    getEngineBusy() { return !!state.engineBusy; },
 
-    // Setters (will update compatibility globals below)
-    setBoard(b) { state.board = b; emit('board', b); window.board = b; },
-    setGame(g) { state.game = g; emit('game', g); window.game = g; },
-    setUIState(s) { if (['SETUP','IN_GAME','RESULT'].includes(s)) { state.uiState = s; emit('uiState', s); } else { console.warn('Invalid uiState', s); } },
-    setMoveInFlight(v) { state.moveInFlight = !!v; emit('moveInFlight', state.moveInFlight); },
-    setPendingPromotion(o) { state.pendingPromotion = o; emit('pendingPromotion', o); },
-    setGameOver(v) { state.gameOver = !!v; emit('gameOver', state.gameOver); },
-    setAutoPgnSaved(v) { state.autoPgnSaved = !!v; emit('autoPgnSaved', state.autoPgnSaved); },
-    setLastFinalPgn(s) { state.lastFinalPgn = s; emit('lastFinalPgn', s); },
-    setPlayEngine(v) { state.playEngine = !!v; emit('playEngine', state.playEngine); },
-    setFreeBoardMode(v) { state.freeBoardMode = !!v; emit('freeBoardMode', state.freeBoardMode); },
-    setSavedGameFenBeforeFree(s) { state.savedGameFenBeforeFree = s; emit('savedGameFenBeforeFree', s); },
-    setHintsRemaining(n) { state.hintsRemaining = Number(n) || 0; emit('hintsRemaining', state.hintsRemaining); },
-    setTapSourceSquare(sq) { state.tapSourceSquare = sq; emit('tapSourceSquare', sq); },
-    setEngineBusy(b) { state.engineBusy = !!b; emit('engineBusy', state.engineBusy); },
+    // Setters (automatically sync with global variables)
+    setBoard(b) { state.board = b; board = b; emit('board', b); },
+    setGame(g) { state.game = g; game = g; emit('game', g); },
+    setUIState(s) { if (['SETUP','IN_GAME','RESULT'].includes(s)) { state.uiState = s; uiState = s; emit('uiState', s); } else { console.warn('Invalid uiState', s); } },
+    setMoveInFlight(v) { state.moveInFlight = !!v; moveInFlight = !!v; emit('moveInFlight', state.moveInFlight); },
+    setPendingPromotion(o) { state.pendingPromotion = o; pendingPromotion = o; emit('pendingPromotion', o); },
+    setGameOver(v) { state.gameOver = !!v; gameOver = !!v; emit('gameOver', state.gameOver); },
+    setAutoPgnSaved(v) { state.autoPgnSaved = !!v; autoPgnSaved = !!v; emit('autoPgnSaved', state.autoPgnSaved); },
+    setLastFinalPgn(s) { state.lastFinalPgn = s; lastFinalPgn = s; emit('lastFinalPgn', s); },
+    setPlayEngine(v) { state.playEngine = !!v; playEngine = !!v; emit('playEngine', state.playEngine); },
+    setFreeBoardMode(v) { state.freeBoardMode = !!v; freeBoardMode = !!v; emit('freeBoardMode', state.freeBoardMode); },
+    setSavedGameFenBeforeFree(s) { state.savedGameFenBeforeFree = s; savedGameFenBeforeFree = s; emit('savedGameFenBeforeFree', s); },
+    setHintsRemaining(n) { state.hintsRemaining = Number(n) || 0; hintsRemaining = Number(n) || 0; emit('hintsRemaining', state.hintsRemaining); },
+    setTapSourceSquare(sq) { state.tapSourceSquare = sq; tapSourceSquare = sq; emit('tapSourceSquare', sq); },
+    setEngineBusy(b) { state.engineBusy = !!b; engineBusy = !!b; emit('engineBusy', state.engineBusy); },
 
     // subscribe/unsubscribe helpers
     subscribe(key, fn) { if (!subs[key]) subs[key] = []; subs[key].push(fn); return () => { subs[key] = subs[key].filter(f => f !== fn); }; }
   };
 })();
+
 
 // Backwards-compatible globals that map to AppState. Keep these for gradual refactor.
 let board = AppState.getBoard();
@@ -333,29 +475,59 @@ let freeBoardMode = false;
 let savedGameFenBeforeFree = AppState.getSavedGameFenBeforeFree ? AppState.getSavedGameFenBeforeFree() : null;
 let hintsRemaining = AppState.getHintsRemaining ? AppState.getHintsRemaining() : 0;
 let setUIState = (s, opts) => { AppState.setUIState(s); uiState = AppState.getUIState(); };
-let tapSourceSquare = AppState.getPendingPromotion ? AppState.getPendingPromotion() : null;
-  svg.style.zIndex = '1000';
+let tapSourceSquare = null;
+let engineBusy = AppState.getEngineBusy();
 
-  // Define a simple arrowhead marker
-  const defs = document.createElementNS(_ARROW_NS, 'defs');
-  const marker = document.createElementNS(_ARROW_NS, 'marker');
-  marker.setAttribute('id', 'arrowhead');
-  marker.setAttribute('markerWidth', '10');
-  marker.setAttribute('markerHeight', '7');
-  marker.setAttribute('refX', '10');
-  marker.setAttribute('refY', '3.5');
-  marker.setAttribute('orient', 'auto');
-  const path = document.createElementNS(_ARROW_NS, 'path');
-  path.setAttribute('d', 'M0,0 L10,3.5 L0,7 z');
-  path.setAttribute('fill', 'currentColor');
-  marker.appendChild(path);
-  defs.appendChild(marker);
-  svg.appendChild(defs);
+// ============================================================================
+// ARROW DRAWING UTILITIES
+// ============================================================================
 
-  // Ensure parent has positioning context
-  try { if (!boardWrap.style.position) boardWrap.style.position = 'relative'; } catch (e) {}
-  boardWrap.appendChild(svg);
-  return svg;
+const _ARROW_NS = 'http://www.w3.org/2000/svg';
+
+function ensureArrowLayer() {
+  try {
+    const boardWrap = document.getElementById('board-container') || document.getElementById('board')?.parentElement;
+    if (!boardWrap) return null;
+
+    // Check if layer already exists
+    let svg = boardWrap.querySelector('.arrow-layer');
+    if (svg) return svg;
+
+    // Create new SVG layer
+    svg = document.createElementNS(_ARROW_NS, 'svg');
+    svg.classList.add('arrow-layer');
+    svg.style.position = 'absolute';
+    svg.style.top = '0';
+    svg.style.left = '0';
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+    svg.style.pointerEvents = 'none';
+    svg.style.zIndex = '1000';
+
+    // Define a simple arrowhead marker
+    const defs = document.createElementNS(_ARROW_NS, 'defs');
+    const marker = document.createElementNS(_ARROW_NS, 'marker');
+    marker.setAttribute('id', 'arrowhead');
+    marker.setAttribute('markerWidth', '10');
+    marker.setAttribute('markerHeight', '7');
+    marker.setAttribute('refX', '10');
+    marker.setAttribute('refY', '3.5');
+    marker.setAttribute('orient', 'auto');
+    const path = document.createElementNS(_ARROW_NS, 'path');
+    path.setAttribute('d', 'M0,0 L10,3.5 L0,7 z');
+    path.setAttribute('fill', 'currentColor');
+    marker.appendChild(path);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    // Ensure parent has positioning context
+    if (!boardWrap.style.position) boardWrap.style.position = 'relative';
+    boardWrap.appendChild(svg);
+    return svg;
+  } catch (e) {
+    console.error('Error creating arrow layer:', e);
+    return null;
+  }
 }
 
 function squareCenter(square) {
@@ -522,7 +694,7 @@ function flashTrays() {
       el.classList.add('tray-flash');
       setTimeout(() => el.classList.remove('tray-flash'), 500);
     });
-  } catch (e) { /* ignore */ }
+  } catch (e) { console.error('Operation failed:', e); }
 
   // Hint button listener (available when DOM ready)
   try {
@@ -548,8 +720,8 @@ function flashTrays() {
             const uci = data.best_move;
             const source = uci.substring(0, 2);
             const target = uci.substring(2, 4);
-            try { clearArrows(); } catch (e) {}
-            try { drawArrow(source, target, '#ffdd00'); } catch (e) { try { drawArrowPercent(source, target, '#ffdd00'); } catch (e) {} }
+            try { clearArrows(); } catch (e) { console.error('Operation failed:', e); }
+            try { drawArrow(source, target, '#ffdd00'); } catch (e) { try { drawArrowPercent(source, target, '#ffdd00'); } catch (e) { console.error('Operation failed:', e); } }
 
             // 3. Update the button text and disabled state
             const label = (hintsRemaining === Infinity) ? '∞' : hintsRemaining;
@@ -559,7 +731,7 @@ function flashTrays() {
             }
 
             // Persist updated budget
-            try { localStorage.setItem('hintsRemaining', String(hintsRemaining)); } catch (e) {}
+            try { localStorage.setItem('hintsRemaining', String(hintsRemaining)); } catch (e) { console.error('Operation failed:', e); }
 
             // 4. Show text feedback
             const hintText = document.getElementById('hint-text'); if (hintText) hintText.textContent = `Sensei suggests: ${uci}`;
@@ -573,7 +745,7 @@ function flashTrays() {
         }
       });
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 function fenPieceCounts(fen) {
@@ -683,7 +855,7 @@ function markAutoPgnSaved(filename) {
     autoPgnSaved = true;
     if (filename) setStatus('Auto-saved PGN: ' + filename);
     else setStatus('Auto-saved PGN');
-  } catch (e) { /* ignore */ }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 // Auto-save helper: send PGN to server for persistent storage
@@ -707,9 +879,8 @@ async function autoSaveGameToServer(pgn, result) {
       })
     });
     const data = await r.json();
-    if (data && data.pgn_file) {
-      setStatus(`Game Over (${result}) — Saved to server: ${data.pgn_file}`);
-    }
+    // Auto-save successful but don't display message to user
+    // The game is saved silently in the background
   } catch (e) {
     console.warn('Auto-save failed', e);
   }
@@ -740,7 +911,7 @@ function rebuildGameFromPosition(posObj) {
     const fenEl = document.getElementById('fen');
     if (fenEl) fenEl.textContent = game.fen();
     // update result indicator
-    try { updateResultIndicator(); } catch (e) {}
+    try { updateResultIndicator(); } catch (e) { console.error('Operation failed:', e); }
     return game.fen();
   } catch (e) {
     console.warn('rebuildGameFromPosition failed', e);
@@ -818,7 +989,7 @@ function setFen(fen, pushHistory = false) {
   try { if (b && typeof b.position === 'function') b.position(fen); } catch (e) { console.warn('setFen: board.position failed', e); }
   // sync compatibility globals
   game = g; board = b; AppState.setGame(g); AppState.setBoard(b);
-  try { clearArrows(); } catch (e) {}
+  try { clearArrows(); } catch (e) { console.error('Operation failed:', e); }
   const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = fen;
   updateResultIndicator();
   // Check if this position is terminal and auto-save if enabled
@@ -826,8 +997,8 @@ function setFen(fen, pushHistory = false) {
   renderMoveList();
   try {
     // Trigger analysis update for Free Board / Study mode
-    try { updateAnalysis(fen); } catch (e) { /* ignore */ }
-  } catch (e) {}
+    try { updateAnalysis(fen); } catch (e) { console.error('Operation failed:', e); }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 function computeSanSequence(prevFen, newFen) {
@@ -901,7 +1072,7 @@ function renderMoveList() {
     }
 
     // Click to jump to this move
-    moveSpan.onclick = () => { try { historyIndex = i + 1; setFen(historyFens[historyIndex], false); } catch (e) {} };
+    moveSpan.onclick = () => { try { historyIndex = i + 1; setFen(historyFens[historyIndex], false); } catch (e) { console.error('Operation failed:', e); } };
 
     listEl.appendChild(moveSpan);
   }
@@ -938,9 +1109,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (ev.key === 'ArrowRight') {
       ev.preventDefault(); goForward();
     } else if (ev.key === 'Home') {
-      ev.preventDefault(); try { if (historyFens && historyFens.length > 0) { historyIndex = 0; setFen(historyFens[0], false); setStatus('Jumped to start'); } } catch (e) {}
+      ev.preventDefault(); try { if (historyFens && historyFens.length > 0) { historyIndex = 0; setFen(historyFens[0], false); setStatus('Jumped to start'); } } catch (e) { console.error('Operation failed:', e); }
     } else if (ev.key === 'End') {
-      ev.preventDefault(); try { if (historyFens && historyFens.length > 0) { historyIndex = historyFens.length - 1; setFen(historyFens[historyIndex], false); setStatus('Jumped to end'); } } catch (e) {}
+      ev.preventDefault(); try { if (historyFens && historyFens.length > 0) { historyIndex = historyFens.length - 1; setFen(historyFens[historyIndex], false); setStatus('Jumped to end'); } } catch (e) { console.error('Operation failed:', e); }
     }
   });
 
@@ -963,7 +1134,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { console.warn('sensei toggle handler failed', e); }
       });
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { console.error('Operation failed:', e); }
 });
 
 // --- Auto-sync snapshot at session end -------------------------------------------------
@@ -979,8 +1150,8 @@ function _syncMainJsSnapshot() {
     // Fallback to fetch with keepalive where supported
     try {
       fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
-    } catch (e) { /* ignore */ }
-  } catch (e) { /* ignore */ }
+    } catch (e) { console.error('Operation failed:', e); }
+  } catch (e) { console.error('Operation failed:', e); }
 }
 
 // Prefer beforeunload to capture navigations and tab/window close events
@@ -1035,7 +1206,7 @@ async function maybeTriggerAutoSave() {
     // Do not auto-generate PGN here; the server is now authoritative and will
     // return a final PGN inside the move/engine responses when the game ends.
     try {
-      try { setPlayEngine(false); } catch (e) { /* ignore */ }
+      try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
       gameOver = true;
       setStatus('Game ended: ' + resultText);
       const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
@@ -1140,7 +1311,7 @@ async function postMove(uci) {
     }
   }
 
-  // No engine reply requested — normal move post
+  // No engine reply requested  - normal move post
   const r = await fetch('/api/move', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1231,8 +1402,8 @@ async function updateAnalysis(fen) {
       }
     }
   } catch (e) {
-    try { if (document.getElementById('analysis-score')) document.getElementById('analysis-score').textContent = '-'; } catch (e) {}
-    try { if (document.getElementById('analysis-line')) document.getElementById('analysis-line').textContent = '-'; } catch (e) {}
+    try { if (document.getElementById('analysis-score')) document.getElementById('analysis-score').textContent = '-'; } catch (e) { console.error('Operation failed:', e); }
+    try { if (document.getElementById('analysis-line')) document.getElementById('analysis-line').textContent = '-'; } catch (e) { console.error('Operation failed:', e); }
     console.warn('analysis request failed', e);
   }
 }
@@ -1290,7 +1461,7 @@ async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
       board.position(pos);
       const fen = rebuildGameFromPosition(pos);
       await copyFenToClipboard(fen);
-      setStatus('Piece removed (free board) — FEN copied');
+      setStatus('Piece removed (free board)  - FEN copied');
       return;
     }
     if (source === target) return; // no-op
@@ -1301,8 +1472,8 @@ async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
     board.position(pos);
     const fen = rebuildGameFromPosition(pos);
     await copyFenToClipboard(fen);
-    setStatus('Piece placed (free board) — FEN copied');
-    try { updateAnalysis(fen); } catch (e) { /* ignore */ }
+    setStatus('Piece placed (free board)  - FEN copied');
+    try { updateAnalysis(fen); } catch (e) { console.error('Operation failed:', e); }
     return;
   } catch (e) {
     console.warn('Free-board drop failed', e);
@@ -1312,26 +1483,42 @@ async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
 
 // Handle piece drops during a live game (legal move checks, promotions, submitUci)
 function handleGameDrop(source, target, piece) {
+  console.log("[handleGameDrop] Called with source=" + source + ", target=" + target + ", piece=" + piece);
   // Block user moves while an engine request is in flight to avoid UI/server desync
-  if (engineBusy && !freeBoardMode) { setStatus('Engine busy — try again'); return 'snapback'; }
+  if (engineBusy && !freeBoardMode) { 
+    console.warn("[handleGameDrop] Blocked: engine busy"); 
+    setStatus('Engine busy  - try again'); 
+    return 'snapback'; 
+  }
 
-  if (target === 'offboard') return rejectMove('No move');
+  if (target === 'offboard') {
+    console.log("[handleGameDrop] Target is offboard");
+    return rejectMove('No move');
+  }
 
-  // Handles taps interpreted by the board as a drop onto the same square.
-  // Treat this as a selection (tap) rather than a no-op move: trigger selection
-  // logic and snap the piece back visually.
+  // Same-square "drop" means user tapped a piece - let the click handler deal with it
+  // Don't call handleSquareClick here to avoid double-triggering (click event will also fire)
   if (source === target) {
-    try { handleSquareClick(source); } catch (e) { /* ignore */ }
+    console.log("[handleGameDrop] Source equals target, ignoring (click handler will process)");
     return 'snapback';
   }
 
-  // Don’t accept moves while server reply pending or promotion chooser open
-  if (moveInFlight || pendingPromotion) return 'snapback';
+  // Don't accept moves while server reply pending or promotion chooser open
+  if (moveInFlight || pendingPromotion) {
+    console.warn("[handleGameDrop] Blocked: moveInFlight=" + moveInFlight + ", pendingPromotion=" + (pendingPromotion ? 'YES' : 'NO'));
+    return 'snapback';
+  }
 
+  console.log("[handleGameDrop] Checking piece at source square...");
   const moving = game.get(source);
-  if (!moving) return rejectMove('No piece');
+  if (!moving) {
+    console.warn("[handleGameDrop] No piece at source square", source);
+    return rejectMove('No piece');
+  }
+  console.log("[handleGameDrop] Piece found:", moving);
 
   if (String(moving.color).toLowerCase() !== String(game.turn()).toLowerCase()) {
+    console.warn("[handleGameDrop] Wrong color to move");
     return rejectMove('Wrong side to move');
   }
 
@@ -1343,10 +1530,16 @@ function handleGameDrop(source, target, piece) {
      (fromPiece.color === 'b' && target[1] === '1'));
 
   const prevFen = game.fen();
+  console.log("[handleGameDrop] prevFen:", prevFen);
 
-  // HARD legality gate — no side effects
+  // HARD legality gate  - no side effects
+  console.log("[handleGameDrop] Checking legality...");
   const legal = game.move({ from: source, to: target, promotion: 'q' });
-  if (legal === null) return rejectMove('Illegal move');
+  if (legal === null) {
+    console.warn("[handleGameDrop] Illegal move");
+    return rejectMove('Illegal move');
+  }
+  console.log("[handleGameDrop] Move is legal, undoing for now...");
   game.undo();
 
   // Promotion: open modal, but onDrop MUST return immediately
@@ -1400,7 +1593,7 @@ function handleGameDrop(source, target, piece) {
 }
 
 async function onDrop(source, target, piece, newPos, oldPos, orientation) {
-  try { clearArrows(); } catch (e) {}
+  try { clearArrows(); } catch (e) { console.error('Operation failed:', e); }
   if (freeBoardMode) {
     return handleFreeBoardDrop(source, target, piece, newPos, oldPos);
   }
@@ -1429,7 +1622,7 @@ function submitUci(uci, prevFen) {
             historyIndex = historyFens.length - 1;
           }
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) { console.error('Operation failed:', e); }
       setFen(prevFen, false);
       setStatus('Move rejected: ' + resp.error);
       return;
@@ -1446,13 +1639,13 @@ function submitUci(uci, prevFen) {
       if (resp.game_over) {
         gameOver = true;
         lastFinalPgn = resp.pgn || null;
-        const resultText = resp.reason ? `${resp.reason} — ${resp.result}` : resp.result || '';
+        const resultText = resp.reason ? `${resp.reason}  - ${resp.result}` : resp.result || '';
         setStatus('Game ended: ' + resultText);
         // Update result indicator and switch to RESULT UI
         const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
-        try { setPlayEngine(false); } catch (e) {}
+        try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
         setUIState('RESULT', { result: resp.result || '', reason: resp.reason || '', pgn: resp.pgn || '' });
-        try { autoSaveGameToServer(resp.pgn, resp.result); } catch (e) { /* ignore */ }
+        try { autoSaveGameToServer(resp.pgn, resp.result); } catch (e) { console.error('Operation failed:', e); }
       }
       return;
     }
@@ -1469,8 +1662,8 @@ function submitUci(uci, prevFen) {
         historyFens.pop();
         historyIndex = historyFens.length - 1;
       }
-    } catch (e) {}
-    try { setFen(prevFen, false); } catch (e) { try { board.position(prevFen); } catch (e) {} try { game.load(prevFen); } catch (e) {} }
+    } catch (e) { console.error('Operation failed:', e); }
+    try { setFen(prevFen, false); } catch (e) { try { board.position(prevFen); } catch (e) { console.error('Operation failed:', e); } try { game.load(prevFen); } catch (e) { console.error('Operation failed:', e); } }
     const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = prevFen;
     // Surface the error message to the user when available
     const msg = (err && err.message) ? ('Network error: ' + err.message) : 'Network error (move not sent)';
@@ -1479,7 +1672,7 @@ function submitUci(uci, prevFen) {
 }
 
 function onDragStart(source, piece, position, orientation) {
-  try { clearArrows(); } catch (e) {}
+  try { clearArrows(); } catch (e) { console.error('Operation failed:', e); }
   // piece is like "wP", "bQ" in chessboard.js
   const turn = (game && typeof game.turn === 'function') ? String(game.turn()).toLowerCase() : 'w'; // 'w' or 'b'
   const pieceColor = (piece && piece[0]) ? String(piece[0]).toLowerCase() : null; // 'w' or 'b'
@@ -1505,11 +1698,11 @@ function onDragStart(source, piece, position, orientation) {
 
 window.addEventListener('load', async () => {
   if (typeof Chess === 'undefined') {
-    console.error('Chess.js not loaded — `Chess` is undefined');
+    console.error('Chess.js not loaded  - `Chess` is undefined');
     return;
   }
   if (typeof Chessboard === 'undefined') {
-    console.error('Chessboard.js not loaded — `Chessboard` is undefined');
+    console.error('Chessboard.js not loaded  - `Chessboard` is undefined');
     return;
   }
 
@@ -1521,7 +1714,7 @@ window.addEventListener('load', async () => {
   if (playerSelect) playerSelect.value = savedPlayerColor;
 
   // Captured trays are now statically placed in the sidebar; dynamic anchoring removed.
-  try { /* no-op placeholder for static tray placement */ } catch (e) {}
+  try { /* no-op placeholder for static tray placement */ } catch (e) { console.error('Operation failed:', e); }
 
   // Persona controls
   enginePersonaSelect = document.getElementById('engine-persona');
@@ -1533,10 +1726,10 @@ window.addEventListener('load', async () => {
     } else if (enginePersonaSelect) {
       // default persona
       enginePersonaSelect.value = 'Student';
-      try { localStorage.setItem('enginePersona', 'Student'); } catch (e) {}
+      try { localStorage.setItem('enginePersona', 'Student'); } catch (e) { console.error('Operation failed:', e); }
     }
   } catch (e) { /* ignore localStorage errors */ }
-  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) {} });
+  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) { console.error('Operation failed:', e); } });
   // playersDisplay and updatePlayersDisplay moved to top-level
   // update display when names or side change
   if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', updatePlayersDisplay);
@@ -1559,17 +1752,17 @@ window.addEventListener('load', async () => {
           b.style.background = '#222'; b.style.color = '#fff';
         } else { b.style.background = 'transparent'; b.style.color = '#ccc'; }
         b.addEventListener('click', () => {
-          try { input.value = v; } catch (e) {}
+          try { input.value = v; } catch (e) { console.error('Operation failed:', e); }
           buttons.forEach(x => { if (x === b) { x.style.background = '#222'; x.style.color = '#fff'; } else { x.style.background = 'transparent'; x.style.color = '#ccc'; } });
-          try { localStorage.setItem(inputId, v); } catch (e) {}
-          try { input.dispatchEvent(new Event('change')); } catch (e) {}
+          try { localStorage.setItem(inputId, v); } catch (e) { console.error('Operation failed:', e); }
+          try { input.dispatchEvent(new Event('change')); } catch (e) { console.error('Operation failed:', e); }
           if (typeof onChange === 'function') onChange(v);
         });
       });
     }
 
-    setupPillSelector('player-color-pills', 'player-color', 'white', (v) => { try { setBoardOrientation(v); } catch (e) {} });
-    setupPillSelector('engine-persona-pills', 'engine-persona', 'Student', (v) => { try { applyBotProfile(v); updatePlayersDisplay(); } catch (e) {} });
+    setupPillSelector('player-color-pills', 'player-color', 'white', (v) => { try { setBoardOrientation(v); } catch (e) { console.error('Operation failed:', e); } });
+    setupPillSelector('engine-persona-pills', 'engine-persona', 'Student', (v) => { try { applyBotProfile(v); updatePlayersDisplay(); } catch (e) { console.error('Operation failed:', e); } });
   } catch (e) { /* ignore pill wiring errors */ }
 
   // Load persisted hintsRemaining if present
@@ -1596,7 +1789,7 @@ window.addEventListener('load', async () => {
     try {
       const name = enginePersonaSelect ? enginePersonaSelect.value : '';
       if (personaIndicator) personaIndicator.textContent = `Persona: ${name || '(none)'}`;
-    } catch (e) { /* ignore */ }
+    } catch (e) { console.error('Operation failed:', e); }
   }
   // initialize and keep in sync
   refreshPersonaIndicator();
@@ -1608,10 +1801,23 @@ window.addEventListener('load', async () => {
     orientation: savedPlayerColor,
     onDragStart: onDragStart,
     onDrop: onDrop,
-    pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png'
+    pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png',
+    dropOffBoard: 'snapback',
+    showNotation: true,
+    moveSpeed: 'fast',
+    snapbackSpeed: 200,
+    snapSpeed: 100
   });
-  // Initialize mobile tap handlers
-  try { initBoardClickHandlers(); } catch (e) { /* ignore */ }
+  // Initialize mobile tap handlers after board renders
+  setTimeout(() => { 
+    console.log('[INIT] Attempting to initialize tap-to-move handlers...');
+    try { 
+      initBoardClickHandlers(); 
+      console.log('[INIT] Tap-to-move initialization complete');
+    } catch (e) { 
+      console.error('[INIT] Failed to initialize tap-to-move:', e); 
+    } 
+  }, 500); // Increased delay to 500ms
   // Ensure the board uses the container width and resizes when tabs change
   try {
     const resizeBoard = () => { try { if (board && typeof board.resize === 'function') board.resize(); else if (board && typeof board.position === 'function') board.position(board.fen()); } catch(e){} };
@@ -1630,7 +1836,7 @@ window.addEventListener('load', async () => {
         const freeToggle = document.getElementById('free-board-toggle');
         if (name === 'free') {
           if (!freeBoardMode) {
-            try { if (playEngine) setPlayEngine(false); } catch (e) {}
+            try { if (playEngine) setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
             // remember current game position if present
             try { savedGameFenBeforeFree = game ? game.fen() : null; } catch (e) { savedGameFenBeforeFree = null; }
             freeBoardMode = true;
@@ -1825,7 +2031,7 @@ window.addEventListener('load', async () => {
               board.position(pos);
               const fen = rebuildGameFromPosition(pos);
               await copyFenToClipboard(fen);
-              setStatus('Piece added from palette — FEN copied');
+              setStatus('Piece added from palette  - FEN copied');
             } catch (e) { console.warn('palette add failed', e); }
           });
           palette.appendChild(img);
@@ -1867,7 +2073,7 @@ window.addEventListener('load', async () => {
           selectedPiece = null;
           document.querySelectorAll('.palette-piece').forEach(x=>x.classList.remove('selected'));
           await copyFenToClipboard(fen);
-          setStatus('Piece placed — FEN copied');
+          setStatus('Piece placed  - FEN copied');
         }
       });
 
@@ -1881,7 +2087,7 @@ window.addEventListener('load', async () => {
           board.position(pos);
           const fen = rebuildGameFromPosition(pos);
           await copyFenToClipboard(fen);
-          setStatus('Piece removed (dblclick) — FEN copied');
+          setStatus('Piece removed (dblclick)  - FEN copied');
         }
       });
     }
@@ -1900,7 +2106,7 @@ window.addEventListener('load', async () => {
         freeBoardMode = !!freeToggle.checked;
         // disable game/engine mode when entering free-board mode
         if (freeBoardMode) {
-          try { setPlayEngine(false); } catch (e) {}
+          try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
         }
         const pal = document.getElementById('piece-palette');
         if (pal) pal.style.display = freeBoardMode ? 'flex' : 'none';
@@ -1914,9 +2120,9 @@ window.addEventListener('load', async () => {
             if (playBtn) playBtn.disabled = true;
           } else {
             if (playBtn) playBtn.disabled = false;
-            try { renderCapturedTrays(); } catch (e) { /* ignore */ }
+            try { renderCapturedTrays(); } catch (e) { console.error('Operation failed:', e); }
           }
-        } catch (e) { /* ignore */ }
+        } catch (e) { console.error('Operation failed:', e); }
       });
     }
     if (exportBtn) {
@@ -1931,7 +2137,7 @@ window.addEventListener('load', async () => {
             try {
               if (navigator.clipboard && navigator.clipboard.writeText) {
                 await navigator.clipboard.writeText(fen);
-                setStatus('FEN exported — copied to clipboard');
+                setStatus('FEN exported  - copied to clipboard');
               } else {
                 // fallback to textarea copy
                 const ta = document.createElement('textarea');
@@ -1940,7 +2146,7 @@ window.addEventListener('load', async () => {
                 ta.select();
                 const ok = document.execCommand('copy');
                 document.body.removeChild(ta);
-                setStatus(ok ? 'FEN exported — copied to clipboard' : 'FEN exported (copy failed)');
+                setStatus(ok ? 'FEN exported  - copied to clipboard' : 'FEN exported (copy failed)');
               }
             } catch (e) {
               console.warn('clipboard copy failed', e);
@@ -1960,7 +2166,7 @@ window.addEventListener('load', async () => {
           board.position(empty);
           const fen = rebuildGameFromPosition(empty);
           await copyFenToClipboard(fen);
-          setStatus('Board cleared — FEN copied');
+          setStatus('Board cleared  - FEN copied');
         } catch (e) { console.warn('clear board failed', e); setStatus('Clear failed'); }
       });
     }
@@ -1989,7 +2195,7 @@ window.addEventListener('load', async () => {
                 fen = parts.join(' ');
               }
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) { console.error('Operation failed:', e); }
 
           // preserve captured-piece counts (do not clear trays)
           // set the FEN locally and record in history
@@ -2015,14 +2221,14 @@ window.addEventListener('load', async () => {
           // Ensure player is the chosen starting color and persist preference
           if (playerSelect && startSide) {
             const color = (startSide.value === 'black') ? 'black' : 'white';
-            try { playerSelect.value = color; localStorage.setItem('playerColor', color); } catch (e) {}
-            try { setBoardOrientation(color); } catch (e) {}
+            try { playerSelect.value = color; localStorage.setItem('playerColor', color); } catch (e) { console.error('Operation failed:', e); }
+            try { setBoardOrientation(color); } catch (e) { console.error('Operation failed:', e); }
           }
 
           // Start engine-enabled play from this position without resetting server position
           try {
             setPlayEngine(true, { keepPosition: true });
-          } catch (e) { /* ignore */ }
+          } catch (e) { console.error('Operation failed:', e); }
 
           setStatus('Game started from custom position');
         } catch (e) {
@@ -2048,6 +2254,8 @@ window.addEventListener('load', async () => {
 
   setUIState = function(state, info) {
     uiState = state;
+    // CRITICAL: Also update AppState so tap-to-move and other features know the game state
+    try { AppState.setUIState(state); } catch (e) { console.error('Failed to update AppState:', e); }
     const setup = document.getElementById('setup-panel');
     const ingame = document.getElementById('in-game-panel');
     const result = document.getElementById('result-panel');
@@ -2055,7 +2263,16 @@ window.addEventListener('load', async () => {
       if (setup) setup.style.display = (state === 'SETUP') ? 'block' : 'none';
       if (ingame) ingame.style.display = (state === 'IN_GAME') ? 'block' : 'none';
       if (result) result.style.display = (state === 'RESULT') ? 'block' : 'none';
-    } catch (e) {}
+    } catch (e) { console.error('Operation failed:', e); }
+
+    // Toggle dimming overlay for game focus mode
+    try {
+      if (state === 'IN_GAME') {
+        document.body.classList.add('game-in-progress');
+      } else {
+        document.body.classList.remove('game-in-progress');
+      }
+    } catch (e) { console.error('Operation failed:', e); }
 
     // Removed flip-on-start control (not used)
 
@@ -2064,7 +2281,7 @@ window.addEventListener('load', async () => {
       const persona = document.getElementById('engine-persona'); if (persona) persona.disabled = (state !== 'SETUP');
       const pcolor = document.getElementById('player-color'); if (pcolor) pcolor.disabled = (state !== 'SETUP');
       const opp = document.getElementById('engine-persona'); if (opp) opp.disabled = (state !== 'SETUP');
-    } catch (e) {}
+    } catch (e) { console.error('Operation failed:', e); }
 
     // Update result banner if provided
     if (state === 'RESULT' && info) {
@@ -2088,8 +2305,8 @@ window.addEventListener('load', async () => {
           hintBtn.disabled = (hintsRemaining <= 0);
         }
       }
-    } catch (e) {}
-    try { const hintText = document.getElementById('hint-text'); if (hintText && state !== 'IN_GAME') hintText.textContent = ''; } catch (e) {}
+    } catch (e) { console.error('Operation failed:', e); }
+    try { const hintText = document.getElementById('hint-text'); if (hintText && state !== 'IN_GAME') hintText.textContent = ''; } catch (e) { console.error('Operation failed:', e); }
   }
 
   // Move history navigation wiring (buttons and keyboard shortcuts were added above).
@@ -2105,7 +2322,7 @@ window.addEventListener('load', async () => {
         historyIndex = 0;
         setFen(historyFens[historyIndex], false);
         setStatus('Jumped to start');
-      } catch (e) {}
+      } catch (e) { console.error('Operation failed:', e); }
     }
     function jumpToEnd() {
       try {
@@ -2113,13 +2330,13 @@ window.addEventListener('load', async () => {
         historyIndex = historyFens.length - 1;
         setFen(historyFens[historyIndex], false);
         setStatus('Jumped to end');
-      } catch (e) {}
+      } catch (e) { console.error('Operation failed:', e); }
     }
 
     if (navStart) navStart.addEventListener('click', jumpToStart);
     if (navEnd) navEnd.addEventListener('click', jumpToEnd);
-    if (navPrev) navPrev.addEventListener('click', () => { try { goBack(); } catch (e) {} });
-    if (navNext) navNext.addEventListener('click', () => { try { goForward(); } catch (e) {} });
+    if (navPrev) navPrev.addEventListener('click', () => { try { goBack(); } catch (e) { console.error('Operation failed:', e); } });
+    if (navNext) navNext.addEventListener('click', () => { try { goForward(); } catch (e) { console.error('Operation failed:', e); } });
   } catch (e) { /* ignore wiring failures */ }
 
   // Wire setup and control buttons
@@ -2154,12 +2371,12 @@ window.addEventListener('load', async () => {
     if (newGameBtn) {
       newGameBtn.addEventListener('click', async () => {
         // 1. Force Engine/Game Stop
-        try { setPlayEngine(false); } catch (e) {}
+        try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
         gameOver = false;
         lastFinalPgn = null;
 
         // 2. Switch UI back to Lobby (Setup)
-        try { setUIState('SETUP'); } catch (e) {}
+        try { setUIState('SETUP'); } catch (e) { console.error('Operation failed:', e); }
 
         // 3. Reset the Board (Server & Client)
         try {
@@ -2170,7 +2387,7 @@ window.addEventListener('load', async () => {
             historyMoves = [];
             historyIndex = -1;
             setFen(r.fen, true);
-            try { renderMoveList(); } catch (e) {}
+            try { renderMoveList(); } catch (e) { console.error('Operation failed:', e); }
             setStatus('Ready for new game');
           } else {
             setStatus('Reset failed (Network)');
@@ -2214,7 +2431,7 @@ window.addEventListener('load', async () => {
             // 2. SUCCESS: Decrement the budget
             if (typeof hintsRemaining !== 'undefined' && hintsRemaining !== Infinity) {
               hintsRemaining--;
-              try { localStorage.setItem('hintsRemaining', String(hintsRemaining)); } catch (e) {}
+              try { localStorage.setItem('hintsRemaining', String(hintsRemaining)); } catch (e) { console.error('Operation failed:', e); }
             }
 
             // 3. Update the Button Label
@@ -2222,10 +2439,10 @@ window.addEventListener('load', async () => {
             hintBtn.textContent = `💡 Hint (${label})`;
 
             // 4. Draw Arrow
-            try { clearArrows(); } catch (e) {}
+            try { clearArrows(); } catch (e) { console.error('Operation failed:', e); }
             const uci = j.best_move;
             const from = uci.slice(0,2), to = uci.slice(2,4);
-            try { drawArrowPercent(from, to, '#ffdd00'); } catch (e) {}
+            try { drawArrowPercent(from, to, '#ffdd00'); } catch (e) { console.error('Operation failed:', e); }
 
             // 5. Update Text
             if (hintText) hintText.textContent = `Sensei suggests: ${uci}`;
@@ -2249,16 +2466,16 @@ window.addEventListener('load', async () => {
       });
     }
     // Update hint visibility when persona changes
-    try { if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { setUIState(uiState); } catch (e) {} }); } catch (e) {}
-  } catch (e) { /* ignore */ }
+    try { if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { setUIState(uiState); } catch (e) { console.error('Operation failed:', e); } }); } catch (e) { console.error('Operation failed:', e); }
+  } catch (e) { console.error('Operation failed:', e); }
 
   // Wire up player color selector to persist and apply orientation
   if (playerSelect) {
     playerSelect.addEventListener('change', () => {
       const v = playerSelect.value === 'black' ? 'black' : 'white';
-      try { localStorage.setItem('playerColor', v); } catch (e) { /* ignore */ }
+      try { localStorage.setItem('playerColor', v); } catch (e) { console.error('Operation failed:', e); }
       try { setBoardOrientation(v); } catch (e) { console.warn('Failed to set board orientation', e); }
-      try { if (typeof updatePlayersDisplay === 'function') updatePlayersDisplay(); } catch (e) {}
+      try { if (typeof updatePlayersDisplay === 'function') updatePlayersDisplay(); } catch (e) { console.error('Operation failed:', e); }
     });
   }
 
@@ -2274,7 +2491,7 @@ window.addEventListener('load', async () => {
           board.position(startFen);
           const fen = startFen;
           await copyFenToClipboard(fen);
-          setStatus('Free board reset to starting position — FEN copied');
+          setStatus('Free board reset to starting position  - FEN copied');
         } catch (e) {
           console.warn('free reset failed', e);
           setStatus('Free board reset failed');
@@ -2289,9 +2506,9 @@ window.addEventListener('load', async () => {
         historyMoves = [];
         historyIndex = -1;
         setFen(resp.fen, true);
-        try { renderMoveList(); } catch (e) {}
+        try { renderMoveList(); } catch (e) { console.error('Operation failed:', e); }
         // clear captured pieces on reset
-        try { clearCapturedTrays(); } catch (e) {}
+        try { clearCapturedTrays(); } catch (e) { console.error('Operation failed:', e); }
         // clearing any game-over state
         gameOver = false;
         autoPgnSaved = false;
@@ -2305,17 +2522,17 @@ window.addEventListener('load', async () => {
               historyMoves = [];
               historyIndex = -1;
               setFen(r2.fen, true);
-              try { renderMoveList(); } catch (e) {}
+              try { renderMoveList(); } catch (e) { console.error('Operation failed:', e); }
               // If server reports game end, finalize locally as well
               if (r2.game_over) {
                 gameOver = true;
                 lastFinalPgn = r2.pgn || null;
-                try { setPlayEngine(false); } catch (e) { /* ignore */ }
-                const resultText = r2.reason ? `${r2.reason} — ${r2.result}` : (r2.result || '');
+                try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+                const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
                 setStatus('Game ended: ' + resultText);
                 const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
                 setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
-                try { autoSaveGameToServer(r2.pgn, r2.result); } catch (e) { /* ignore */ }
+                try { autoSaveGameToServer(r2.pgn, r2.result); } catch (e) { console.error('Operation failed:', e); }
               } else {
                 setStatus('Engine played first move');
               }
@@ -2351,7 +2568,7 @@ window.addEventListener('load', async () => {
         historyFens = [];
         historyIndex = -1;
         setFen(resp.fen, true);
-        try { clearCapturedTrays(); } catch (e) {}
+        try { clearCapturedTrays(); } catch (e) { console.error('Operation failed:', e); }
         gameOver = false; autoPgnSaved = false;
         setStatus('Position reset');
       } else {
@@ -2390,7 +2607,7 @@ window.addEventListener('load', async () => {
       const el = document.getElementById('result-indicator'); if (el) el.textContent = resText;
       // switch to RESULT UI and expose PGN
       setUIState('RESULT', { result: data && data.result ? data.result : '', reason: data && data.reason ? data.reason : 'resign', pgn: data && data.pgn ? data.pgn : '' });
-      try { if (data && data.pgn) autoSaveGameToServer(data.pgn, data.result); } catch (e) { /* ignore */ }
+      try { if (data && data.pgn) autoSaveGameToServer(data.pgn, data.result); } catch (e) { console.error('Operation failed:', e); }
       // Do NOT modify board FEN or clear history here; user may inspect final position or use Reset button.
     } catch (e) {
       setStatus('Network error: end-game failed');
@@ -2401,7 +2618,7 @@ window.addEventListener('load', async () => {
   // still exposes a manual `download-final-pgn` button for personal downloads.
 
   // Clear captured trays on reset/load
-  try { clearCapturedTrays(); } catch (e) {}
+  try { clearCapturedTrays(); } catch (e) { console.error('Operation failed:', e); }
 
   // Move list is a permanent element under the right-side accordion (#move-list)
 
@@ -2410,40 +2627,7 @@ window.addEventListener('load', async () => {
 
   // Theme helpers moved to top-level: applyTheme()
 
-  // Centralized local game status helper.
-  // Returns: { over: boolean, result: '1-0'|'0-1'|'1/2-1/2'|'*', resultText: string }
-  function getLocalGameStatus() {
-    try {
-      if (!game) return { over: false, result: '*', resultText: '' };
-      // Check checkmate first
-      if (game.in_checkmate && game.in_checkmate()) {
-        const winner = game.turn() === 'w' ? 'Black' : 'White';
-        const result = winner === 'White' ? '1-0' : '0-1';
-        const resultText = `${winner} wins (checkmate)`;
-        return { over: true, result, resultText };
-      }
-      // Stalemate
-      if (game.in_stalemate && game.in_stalemate()) {
-        return { over: true, result: '1/2-1/2', resultText: 'Draw (stalemate)' };
-      }
-      // Threefold repetition
-      if (game.in_threefold_repetition && game.in_threefold_repetition()) {
-        return { over: true, result: '1/2-1/2', resultText: 'Draw (threefold repetition)' };
-      }
-      // Insufficient material
-      if (game.insufficient_material && game.insufficient_material()) {
-        return { over: true, result: '1/2-1/2', resultText: 'Draw (insufficient material)' };
-      }
-      // Generic draw (50-move rule, etc.)
-      if (game.in_draw && game.in_draw()) {
-        return { over: true, result: '1/2-1/2', resultText: 'Draw' };
-      }
-      return { over: false, result: '*', resultText: '' };
-    } catch (e) {
-      console.warn('getLocalGameStatus failed', e);
-      return { over: false, result: '*', resultText: '' };
-    }
-  }
+  // getLocalGameStatus() moved to top-level for accessibility during game moves
 
   function initThemeFromPreference() {
     const saved = localStorage.getItem('theme');
@@ -2452,7 +2636,7 @@ window.addEventListener('load', async () => {
       return;
     }
     // Default to dark mode when no explicit preference is stored
-    try { applyTheme('dark'); } catch (e) { /* ignore */ }
+    try { applyTheme('dark'); } catch (e) { console.error('Operation failed:', e); }
   }
 
   // --- Theme Toggle Logic ---
@@ -2460,10 +2644,10 @@ window.addEventListener('load', async () => {
   function updateThemeBtnText(currentTheme) { if (themeToggle) { // If current is dark, button should offer Light Mode, and vice versa
     themeToggle.textContent = (currentTheme === 'dark') ? 'Light Mode' : 'Dark Mode'; } }
 
-  if (themeToggle) { themeToggle.addEventListener('click', () => { const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; const next = current === 'dark' ? 'light' : 'dark'; applyTheme(next); updateThemeBtnText(next); try { localStorage.setItem('theme', next); } catch (e) {} }); }
+  if (themeToggle) { themeToggle.addEventListener('click', () => { const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; const next = current === 'dark' ? 'light' : 'dark'; applyTheme(next); updateThemeBtnText(next); try { localStorage.setItem('theme', next); } catch (e) { console.error('Operation failed:', e); } }); }
 
   // Initialize theme on load (default to dark unless user preference exists)
-  try { initThemeFromPreference(); } catch (e) {}
+  try { initThemeFromPreference(); } catch (e) { console.error('Operation failed:', e); }
   const startTheme = document.documentElement.getAttribute('data-theme') || 'dark';
   updateThemeBtnText(startTheme);
 
@@ -2486,14 +2670,14 @@ window.addEventListener('load', async () => {
     timeVal.textContent = timeSlider.value;
     timeSlider.addEventListener('input', () => {
       timeVal.textContent = timeSlider.value;
-      try { localStorage.setItem('engineTime', timeSlider.value); } catch (e) { /* ignore */ }
+      try { localStorage.setItem('engineTime', timeSlider.value); } catch (e) { console.error('Operation failed:', e); }
     });
   }
   if (skillSlider && skillVal) {
     skillVal.textContent = skillSlider.value;
     skillSlider.addEventListener('input', () => {
       skillVal.textContent = skillSlider.value;
-      try { localStorage.setItem('engineSkill', skillSlider.value); } catch (e) { /* ignore */ }
+      try { localStorage.setItem('engineSkill', skillSlider.value); } catch (e) { console.error('Operation failed:', e); }
     });
   }
 
@@ -2521,7 +2705,7 @@ window.addEventListener('load', async () => {
       try {
         playBtn.classList.remove('play-start','play-resign');
         playBtn.classList.add(playEngine ? 'play-resign' : 'play-start');
-      } catch (e) {}
+      } catch (e) { console.error('Operation failed:', e); }
     }
     setStatus(playEngine ? 'Game started' : 'Game stopped');
 
@@ -2529,7 +2713,7 @@ window.addEventListener('load', async () => {
     if (playEngine) {
       if (opts && opts.keepPosition) {
         // Start play mode from the existing server position (do not reset)
-        try { renderCapturedTrays(); } catch (e) {}
+        try { renderCapturedTrays(); } catch (e) { console.error('Operation failed:', e); }
         if (playerSelect && playerSelect.value === 'black') {
           postEngineMove().then(r2 => {
               if (r2 && r2.fen) {
@@ -2537,18 +2721,18 @@ window.addEventListener('load', async () => {
                 historyMoves = [];
                 historyIndex = -1;
                 setFen(r2.fen, true);
-                try { renderMoveList(); } catch (e) {}
+                try { renderMoveList(); } catch (e) { console.error('Operation failed:', e); }
                 try { renderCapturedTrays(); } catch (e) { }
               if (r2.game_over) {
                 gameOver = true;
                 lastFinalPgn = r2.pgn || null;
-                try { setPlayEngine(false); } catch (e) { /* ignore */ }
-                const resultText = r2.reason ? `${r2.reason} — ${r2.result}` : (r2.result || '');
+                try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+                const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
                 setStatus('Game ended: ' + resultText);
                 const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
                 setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
               } else {
-                setStatus('Engine played first move — Game started');
+                setStatus('Engine played first move  - Game started');
               }
             } else {
               setStatus('Engine failed to play first move');
@@ -2562,7 +2746,7 @@ window.addEventListener('load', async () => {
             historyFens = [];
             historyIndex = -1;
             setFen(resp.fen, true);
-            setStatus('Position reset — Game started');
+            setStatus('Position reset  - Game started');
             try { renderCapturedTrays(); } catch (e) { }
             // If player sits Black, have engine (White) play the first move
             if (playerSelect && playerSelect.value === 'black') {
@@ -2575,14 +2759,14 @@ window.addEventListener('load', async () => {
                   if (r2.game_over) {
                       gameOver = true;
                       lastFinalPgn = r2.pgn || null;
-                      try { setPlayEngine(false); } catch (e) { /* ignore */ }
-                      const resultText = r2.reason ? `${r2.reason} — ${r2.result}` : (r2.result || '');
+                      try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+                      const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
                       setStatus('Game ended: ' + resultText);
                       const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
                       setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
-                      try { autoSaveGameToServer(r2.pgn, r2.result); } catch (e) { /* ignore */ }
+                      try { autoSaveGameToServer(r2.pgn, r2.result); } catch (e) { console.error('Operation failed:', e); }
                   } else {
-                    setStatus('Engine played first move — Game started');
+                    setStatus('Engine played first move  - Game started');
                   }
                 } else {
                   setStatus('Engine failed to play first move');
@@ -2596,12 +2780,12 @@ window.addEventListener('load', async () => {
       }
     } else {
       // game stopped
-      try { renderCapturedTrays(); } catch (e) {}
-      try { if (document.getElementById('hint-btn')) document.getElementById('hint-btn').style.display = 'none'; } catch (e) {}
+      try { renderCapturedTrays(); } catch (e) { console.error('Operation failed:', e); }
+      try { if (document.getElementById('hint-btn')) document.getElementById('hint-btn').style.display = 'none'; } catch (e) { console.error('Operation failed:', e); }
     }
   }
 
-  // Centralized board orientation helper — single source of truth
+  // Centralized board orientation helper  - single source of truth
   function setBoardOrientation(arg) {
     try {
       if (!board || typeof board.orientation !== 'function') return;
@@ -2635,7 +2819,7 @@ window.addEventListener('load', async () => {
       if (nameInput) localStorage.setItem('playerName', playerName);
       if (colorInput) localStorage.setItem('playerColor', playerColor);
       if (personaInput) localStorage.setItem('enginePersona', personaVal);
-    } catch (e) {}
+    } catch (e) { console.error('Operation failed:', e); }
 
     // 3. Reset the Hint Budget (Rules)
     try {
@@ -2648,19 +2832,19 @@ window.addEventListener('load', async () => {
     } catch (e) { hintsRemaining = 0; }
 
     // 4. Update Board Orientation
-    try { if (board && typeof board.orientation === 'function') { board.orientation(playerColor); } } catch (e) {}
+    try { if (board && typeof board.orientation === 'function') { board.orientation(playerColor); } } catch (e) { console.error('Operation failed:', e); }
 
     // 5. Apply Bot Profile (Skill/Time)
-    try { applyBotProfile(personaVal); } catch (e) {}
+    try { applyBotProfile(personaVal); } catch (e) { console.error('Operation failed:', e); }
 
     // 6. Switch UI to GAME Mode
-    try { setUIState('IN_GAME'); } catch (e) {}
+    try { setUIState('IN_GAME'); } catch (e) { console.error('Operation failed:', e); }
 
     // 7. Start the Engine/Server Game
-    try { setPlayEngine(true); } catch (e) {}
+    try { setPlayEngine(true); } catch (e) { console.error('Operation failed:', e); }
 
     // 8. Update Displays
-    try { updatePlayersDisplay(); } catch (e) {}
+    try { updatePlayersDisplay(); } catch (e) { console.error('Operation failed:', e); }
     try {
       const hintBtn = document.getElementById('hint-btn');
       if (hintBtn) {
@@ -2669,12 +2853,12 @@ window.addEventListener('load', async () => {
         hintBtn.disabled = (hintsRemaining <= 0);
         hintBtn.style.display = 'inline-flex';
       }
-    } catch (e) {}
+    } catch (e) { console.error('Operation failed:', e); }
   }
 
     if (playBtn) {
     // ensure button is enabled and wired
-    try { playBtn.disabled = false; } catch (e) {}
+    try { playBtn.disabled = false; } catch (e) { console.error('Operation failed:', e); }
     playBtn.addEventListener('click', async (ev) => {
       try {
         if (!playEngine) {
@@ -2687,6 +2871,6 @@ window.addEventListener('load', async () => {
       } catch (e) { console.error('playBtn handler threw', e); }
     });
       // ensure initial class matches state on load
-      try { playBtn.classList.remove('play-start','play-resign'); playBtn.classList.add(playEngine ? 'play-resign' : 'play-start'); } catch (e) {}
+      try { playBtn.classList.remove('play-start','play-resign'); playBtn.classList.add(playEngine ? 'play-resign' : 'play-start'); } catch (e) { console.error('Operation failed:', e); }
   }
 });
