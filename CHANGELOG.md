@@ -1,4 +1,17 @@
 # CHANGELOG — Chess (2026-01-01)
+## 2026-01-21 — Feedback widget and server storage
+
+- **Added feedback UI:** Floating feedback button and modal were added to `templates/index.html` to let users send feedback without leaving the page.
+- **Client JS:** Added handlers to submit feedback (POST JSON) to the server route `/submit-feedback` and a small success state in the modal.
+- **CSS:** Styles for the floating button and modal were appended to `static/style.css`.
+- **Server route:** Added `/submit-feedback` in `server.py` which persists submissions to `feedback/user_feedback.txt` (timestamped).
+- **Consolidation:** Deprecated the duplicate `/api/feedback` endpoint and consolidated any existing `feedback.txt` contents into the canonical `feedback/user_feedback.txt` file.
+- **VCS:** Added `feedback/` to `.gitignore` so user feedback is not committed.
+
+Files changed: `templates/index.html`, `static/style.css`, `server.py`, `app/api.py`, `.gitignore`
+
+- **UI tweak:** Updated the floating feedback button color to green (#4CAF50) to match the persona badge (file: `templates/index.html`).
+
 ## 2026-01-20 — Code cleanup and production readiness
 
 - **Fixed unreachable code in batch simulation**: The combined PGN file logic in `api_simulate_batch()` was placed after a `return` statement and never executed. Moved it before the return so batch simulations now properly generate combined PGN files.
