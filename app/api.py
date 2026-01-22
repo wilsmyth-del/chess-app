@@ -985,3 +985,30 @@ def api_download_pgn():
         return send_file(found, as_attachment=True, download_name=safe)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/api/feedback', methods=['POST'])
+def api_feedback():
+    """Accept feedback submissions and append to a single feedback.txt file.
+
+    Expected JSON payload: {name: str, feedback: str, ts: ISOstring}
+    """
+    try:
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+        fb = (data.get('feedback') or '').strip()
+        ts = data.get('ts') or datetime.datetime.now().isoformat()
+        if not fb:
+            return jsonify({'ok': False, 'error': 'missing_feedback'}), 400
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        out_path = os.path.join(root, 'feedback.txt')
+        line = f"[{ts}] {name if name else 'Anonymous'}: {fb.replace('\n', ' ').strip()}\n"
+        # Append atomically by opening in append mode
+        try:
+            with open(out_path, 'a', encoding='utf-8') as fh:
+                fh.write(line)
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
