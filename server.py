@@ -1,4 +1,7 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, request, jsonify
+from datetime import datetime
+from pathlib import Path
+import json
 from app.api import api_bp
 import app.api as api_mod
 import os
@@ -8,6 +11,34 @@ import hashlib
 def create_app():
     app = Flask(__name__, static_folder="static", template_folder="templates")
     app.register_blueprint(api_bp)
+
+    @app.route('/submit-feedback', methods=['POST'])
+    def submit_feedback():
+        """Handle feedback submissions and save to file."""
+        try:
+            data = request.get_json() or {}
+            name = data.get('name', 'Anonymous')
+            feedback = data.get('feedback', '')
+
+            # Create feedback directory if it doesn't exist
+            feedback_dir = Path(__file__).parent / 'feedback'
+            feedback_dir.mkdir(exist_ok=True)
+
+            # Save to feedback file with timestamp
+            feedback_file = feedback_dir / 'user_feedback.txt'
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            with open(feedback_file, 'a', encoding='utf-8') as f:
+                f.write(f"\n{'='*60}\n")
+                f.write(f"Date: {timestamp}\n")
+                f.write(f"Name: {name}\n")
+                f.write(f"Feedback:\n{feedback}\n")
+                f.write(f"{'='*60}\n")
+
+            return jsonify({'status': 'success'}), 200
+        except Exception as e:
+            app.logger.exception('Error saving feedback')
+            return jsonify({'status': 'error', 'message': str(e)}), 500
 
     @app.get("/")
     def home():

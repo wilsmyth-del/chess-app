@@ -1,7 +1,38 @@
-venv/
+# Python
 __pycache__/
-*.pyc
-instance/
-.pytest_cache/
+*.py[cod]
+*$py.class
+*.so
+.Python
 env/
-*.sqlite3
+venv/
+ENV/
+.venv
+
+# Flask
+instance/
+.webassets-cache
+
+# Environment variables
+.env
+openai_api_key.txt
+
+# Data (user data should not be in Git)
+data/
+exports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# User feedback
+feedback/

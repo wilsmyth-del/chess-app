@@ -192,5 +192,115 @@
     </script>
     {% endif %}
     <script src="/static/main.js?v={{ main_js_version }}"></script>
+    <!-- Feedback Button (floating bottom-right) -->
+    <button id="feedbackBtn" class="feedback-button">💬 Feedback</button>
+
+    <!-- Feedback Modal -->
+    <div id="feedbackModal" class="modal" aria-hidden="true">
+        <div class="modal-content">
+            <span class="close" role="button" aria-label="Close">&times;</span>
+            <h2>Send Feedback</h2>
+            <p>Help improve this chess board! Share your thoughts, report bugs, or suggest features.</p>
+            
+            <form id="feedbackForm">
+                <label for="userName">Name (optional):</label>
+                <input type="text" id="userName" name="userName" placeholder="Your name">
+                
+                <label for="userFeedback">Your feedback:</label>
+                <textarea id="userFeedback" name="userFeedback" rows="6" placeholder="What would you like to share?" required></textarea>
+                
+                <div class="button-group">
+                    <button type="submit" class="submit-btn">Send Feedback</button>
+                    <button type="button" class="cancel-btn" onclick="closeFeedbackModal()">Cancel</button>
+                </div>
+            </form>
+            
+            <div id="feedbackSuccess" style="display: none;">
+                <p>✅ Thanks! Your feedback has been received.</p>
+            </div>
+        </div>
+    </div>
+
+    <style>
+    /* Minimal styles for feedback modal/button */
+      .feedback-button{position:fixed;right:18px;bottom:18px;z-index:1200;background:#4CAF50;color:#fff;border:none;padding:10px 14px;border-radius:999px;box-shadow:0 4px 10px rgba(76,175,80,0.25);cursor:pointer}
+    .modal{position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:1201}
+    .modal[aria-hidden="true"]{display:none}
+    .modal-content{background:#111;color:#fff;padding:18px;border-radius:8px;max-width:520px;width:92%;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
+    .modal-content input,.modal-content textarea{width:100%;padding:8px;margin:6px 0 12px;border-radius:6px;border:1px solid #444;background:#0b0b0b;color:#fff}
+    .modal-content .close{position:absolute;right:12px;top:10px;font-size:20px;cursor:pointer}
+    .button-group{display:flex;gap:8px}
+    .submit-btn{background:#0b5fff;color:#fff;padding:8px 12px;border-radius:6px;border:none}
+    .cancel-btn{background:transparent;color:#ddd;border:1px solid #444;padding:8px 12px;border-radius:6px}
+    </style>
+
+    <script>
+    // Feedback Modal Functions
+    const feedbackModal = document.getElementById('feedbackModal');
+    const feedbackBtn = document.getElementById('feedbackBtn');
+    const feedbackForm = document.getElementById('feedbackForm');
+    const feedbackSuccess = document.getElementById('feedbackSuccess');
+    const closeBtn = document.querySelector('.close');
+
+    // Open modal
+    if (feedbackBtn) {
+      feedbackBtn.onclick = function() {
+        if (feedbackModal) feedbackModal.setAttribute('aria-hidden', 'false');
+      }
+    }
+
+    // Close modal
+    if (closeBtn) {
+      closeBtn.onclick = function() {
+        closeFeedbackModal();
+      }
+    }
+
+    function closeFeedbackModal() {
+      if (feedbackModal) feedbackModal.setAttribute('aria-hidden', 'true');
+      if (feedbackForm) { feedbackForm.style.display = 'block'; feedbackForm.reset(); }
+      if (feedbackSuccess) feedbackSuccess.style.display = 'none';
+    }
+
+    // Close if clicking outside modal
+    window.onclick = function(event) {
+      if (event.target === feedbackModal) {
+        closeFeedbackModal();
+      }
+    }
+
+    // Handle form submission
+    if (feedbackForm) {
+      feedbackForm.onsubmit = async function(e) {
+        e.preventDefault();
+
+        const formData = new FormData(feedbackForm);
+        const data = {
+          name: formData.get('userName') || 'Anonymous',
+          feedback: formData.get('userFeedback')
+        };
+
+        try {
+          const response = await fetch('/submit-feedback', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+          });
+
+          if (response.ok) {
+            feedbackForm.style.display = 'none';
+            feedbackSuccess.style.display = 'block';
+            setTimeout(closeFeedbackModal, 2000); // Close after 2 seconds
+          } else {
+            alert('Failed to send feedback.');
+          }
+        } catch (error) {
+          alert('Failed to send feedback. Please try again.');
+        }
+      }
+    }
+    </script>
   </body>
 </html>
