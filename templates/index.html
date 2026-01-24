@@ -223,7 +223,7 @@
 
     <style>
     /* Minimal styles for feedback modal/button */
-    .feedback-button{position:fixed;right:18px;bottom:18px;z-index:1200;background:#0b5fff;color:#fff;border:none;padding:10px 14px;border-radius:999px;box-shadow:0 4px 10px rgba(11,95,255,0.25);cursor:pointer}
+      .feedback-button{position:fixed;right:18px;bottom:18px;z-index:1200;background:#4CAF50;color:#fff;border:none;padding:10px 14px;border-radius:999px;box-shadow:0 4px 10px rgba(76,175,80,0.25);cursor:pointer}
     .modal{position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:1201}
     .modal[aria-hidden="true"]{display:none}
     .modal-content{background:#111;color:#fff;padding:18px;border-radius:8px;max-width:520px;width:92%;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
@@ -281,7 +281,7 @@
         };
 
         try {
-          const response = await fetch('/api/feedback', {
+          const response = await fetch('/submit-feedback', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
