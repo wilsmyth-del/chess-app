@@ -985,3 +985,14 @@ def api_download_pgn():
         return send_file(found, as_attachment=True, download_name=safe)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/api/feedback', methods=['POST'])
+def api_feedback():
+    """Accept feedback submissions and append to a single feedback.txt file.
+
+    Expected JSON payload: {name: str, feedback: str, ts: ISOstring}
+    """
+    # Deprecated: feedback now handled by /submit-feedback in server.py
+    return jsonify({'ok': False, 'error': 'deprecated_endpoint'}), 404
+
