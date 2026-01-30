@@ -29,8 +29,8 @@ def is_persona_allowed(name):
 # Centralized default persona definitions (used for UI tuning + runtime)
 DEFAULT_PERSONAS = {
     'grasshopper': {
-        'blunder_cap': 2000,
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 450, 'Skill Level': 0, 'MultiPV': 10},
+        'blunder_cap': 750,
+        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 450, 'Skill Level': 1, 'MultiPV': 10},
         'depth': 4,
         'pick_temperature': 2.5,
         'multipv': 10,
@@ -44,7 +44,7 @@ DEFAULT_PERSONAS = {
         },
     },
     'student': {
-        'blunder_cap': 900,
+        'blunder_cap': 500,
         'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 750, 'Skill Level': 2, 'MultiPV': 10},
         'depth': 6,
         'pick_temperature': 1.6,
