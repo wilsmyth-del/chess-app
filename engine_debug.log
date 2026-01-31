@@ -842,3 +842,5 @@
 [MOVE-RESULT] 2026-01-30T18:28:50.726288 reply='c4e6' fen=2b2rk1/1p1n1pp1/1r1Pq2p/2P1B3/p3B3/P3PN2/5PPP/2RQ1RK1 w - - 3 20 engine_skill=5 engine_persona=Student rng_seed=None
 [MOVE] 2026-01-30T18:29:14.003093 uci=c5b6 fen=2b2rk1/1p1n1pp1/1P1Pq2p/4B3/p3B3/P3PN2/5PPP/2RQ1RK1 b - - 0 20 time=0.35 engine_skill=5 engine_persona=Student
 [MOVE-RESULT] 2026-01-30T18:29:14.380832 reply='d7b6' fen=2b2rk1/1p3pp1/1n1Pq2p/4B3/p3B3/P3PN2/5PPP/2RQ1RK1 w - - 0 21 engine_skill=5 engine_persona=Student rng_seed=None
+[MOVE] 2026-01-30T18:43:24.786868 uci=d2d3 fen=rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1 time=0.35 engine_skill=5 engine_persona=Student
+[MOVE-RESULT] 2026-01-30T18:43:25.262633 reply='b8c6' fen=r1bqkbnr/pppppppp/2n5/8/8/3P4/PPP1PPPP/RNBQKBNR w KQkq - 1 2 engine_skill=5 engine_persona=Student rng_seed=None
