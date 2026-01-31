@@ -292,35 +292,23 @@ function attemptMove(from, to) {
  *    (e.g., favoring blunders vs. best moves)
  */
 const BOT_PROFILES = {
-  'Grasshopper': { 
-    skill: 0, 
-    time: 0.1, 
+  'Beginner': { 
+    skill: 1, 
+    time: 0.25, 
     hints: Infinity, 
-    description: 'Beginner - makes obvious mistakes' 
+    description: 'Learning the basics - makes obvious mistakes' 
   },
-  'Student': { 
+  'Intermediate': { 
     skill: 5, 
-    time: 0.5, 
-    hints: 3, 
-    description: 'Learning - still developing' 
-  },
-  'Adept': { 
-    skill: 10, 
-    time: 1.0, 
+    time: 0.35, 
     hints: 2, 
-    description: 'Intermediate - solid play' 
+    description: 'Solid player - sees most tactics' 
   },
-  'Ninja': { 
-    skill: 15, 
-    time: 2.0, 
-    hints: 1, 
-    description: 'Advanced - strong tactical awareness' 
-  },
-  'Sensei': { 
-    skill: 20, 
-    time: 3.0, 
+  'Advanced': { 
+    skill: 12, 
+    time: 0.5, 
     hints: 0, 
-    description: 'Expert - master level play' 
+    description: 'Strong player - finds good moves consistently' 
   }
 };
 
@@ -329,7 +317,7 @@ const botProfiles = BOT_PROFILES;
 
 /**
  * Applies a bot difficulty profile to the engine
- * @param {string} name - Name of bot profile (Grasshopper, Student, Adept, Ninja, or Sensei)
+ * @param {string} name - Name of bot profile (Beginner, Intermediate, or Advanced)
  * @returns {Object|null} The bot profile config or null if not found
  */
 function applyBotProfile(name) {
@@ -438,7 +426,7 @@ function applyTheme(name) {
 function getEngineParams() {
   try {
     const personaName = (document.getElementById('engine-persona')?.value || '').trim();
-    const profile = (personaName && botProfiles[personaName]) ? botProfiles[personaName] : botProfiles['Student'];
+    const profile = (personaName && botProfiles[personaName]) ? botProfiles[personaName] : botProfiles['Intermediate'];
     return {
       engine_persona: personaName,
       engine_skill: profile.skill,
@@ -1734,8 +1722,8 @@ window.addEventListener('load', async () => {
       enginePersonaSelect.value = savedPersona;
     } else if (enginePersonaSelect) {
       // default persona
-      enginePersonaSelect.value = 'Student';
-      try { localStorage.setItem('enginePersona', 'Student'); } catch (e) { console.error('Operation failed:', e); }
+      enginePersonaSelect.value = 'Intermediate';
+      try { localStorage.setItem('enginePersona', 'Intermediate'); } catch (e) { console.error('Operation failed:', e); }
     }
   } catch (e) { /* ignore localStorage errors */ }
   if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) { console.error('Operation failed:', e); } });
@@ -1773,7 +1761,7 @@ window.addEventListener('load', async () => {
     }
 
     setupPillSelector('player-color-pills', 'player-color', 'white', (v) => { try { setBoardOrientation(v); } catch (e) { console.error('Operation failed:', e); } });
-    setupPillSelector('engine-persona-pills', 'engine-persona', 'Student', (v) => { try { applyBotProfile(v); updatePlayersDisplay(); } catch (e) { console.error('Operation failed:', e); } });
+    setupPillSelector('engine-persona-pills', 'engine-persona', 'Intermediate', (v) => { try { applyBotProfile(v); updatePlayersDisplay(); } catch (e) { console.error('Operation failed:', e); } });
   } catch (e) { /* ignore pill wiring errors */ }
 
   // Load persisted hintsRemaining if present
@@ -2941,7 +2929,7 @@ window.addEventListener('load', async () => {
 
     const playerName = nameInput ? nameInput.value : 'Guest';
     const playerColor = colorInput ? colorInput.value : 'white';
-    const personaVal = personaInput ? personaInput.value : 'Student';
+    const personaVal = personaInput ? personaInput.value : 'Intermediate';
 
     // 2. Persist preferences
     try {

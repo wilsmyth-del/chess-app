@@ -26,84 +26,87 @@ def is_persona_allowed(name):
         return False
 
 
-# Centralized default persona definitions (used for UI tuning + runtime)
-DEFAULT_PERSONAS = {
-    'grasshopper': {
-        'blunder_cap': 750,
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 450, 'Skill Level': 1, 'MultiPV': 10},
-        'depth': 4,
-        'pick_temperature': 2.5,
-        'multipv': 10,
-        'mercy': {'mate_in': 4, 'mate_keep_prob': 0.03, 'eval_gap_threshold': 300, 'eval_keep_prob': 0.15},
-        'endgame_depth_delta': -2,
-        'endgame_temp_delta': 0.3,
-        'pieces_threshold': 10,
-        'curve': {
-            'type': 'table',
-            'weights': [1, 2, 6, 10, 14, 14, 10, 6, 4, 3]
+# Bot configuration - loaded from bot_config.json
+# This is now the single source of truth for all bot personalities
+def _load_bot_config():
+    """Load bot configuration from bot_config.json"""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'bot_config.json')
+        if not os.path.exists(config_path):
+            return _get_default_bot_config()
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            bots = data.get('bots', {})
+            
+            # Convert config format to DEFAULT_PERSONAS format
+            personas = {}
+            for bot_key, bot_data in bots.items():
+                personas[bot_key] = {
+                    'blunder_cap': bot_data.get('blunder_cap', 500),
+                    'uci': {
+                        'UCI_LimitStrength': True,
+                        'UCI_Elo': bot_data.get('engine_elo', 1000),
+                        'Skill Level': bot_data.get('engine_skill', 5),
+                        'MultiPV': bot_data.get('multipv', 10)
+                    },
+                    'depth': bot_data.get('depth', 8),
+                    'pick_temperature': bot_data.get('pick_temperature', 1.0),
+                    'multipv': bot_data.get('multipv', 10),
+                    'mercy': bot_data.get('mercy'),
+                    'endgame_depth_delta': bot_data.get('endgame_depth_delta', -1),
+                    'endgame_temp_delta': bot_data.get('endgame_temp_delta', 0.3),
+                    'pieces_threshold': bot_data.get('pieces_threshold', 10),
+                    'curve': bot_data.get('curve', {'type': 'table', 'weights': [10] * 10})
+                }
+            return personas
+    except Exception as e:
+        print(f"Error loading bot_config.json: {e}")
+        return _get_default_bot_config()
+
+def _get_default_bot_config():
+    """Fallback configuration if bot_config.json is missing"""
+    return {
+        'beginner': {
+            'blunder_cap': 750,
+            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 450, 'Skill Level': 1, 'MultiPV': 10},
+            'depth': 4,
+            'pick_temperature': 2.5,
+            'multipv': 10,
+            'mercy': {'mate_in': 4, 'mate_keep_prob': 0.03, 'eval_gap_threshold': 300, 'eval_keep_prob': 0.15},
+            'endgame_depth_delta': -2,
+            'endgame_temp_delta': 0.3,
+            'pieces_threshold': 10,
+            'curve': {'type': 'table', 'weights': [1, 2, 6, 10, 14, 14, 10, 6, 4, 3]},
         },
-    },
-    'student': {
-        'blunder_cap': 500,
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 750, 'Skill Level': 2, 'MultiPV': 10},
-        'depth': 6,
-        'pick_temperature': 1.6,
-        'multipv': 10,
-        'mercy': {'mate_in': 3, 'mate_keep_prob': 0.15, 'eval_gap_threshold': 400, 'eval_keep_prob': 0.30},
-        'endgame_depth_delta': -2,
-        'endgame_temp_delta': 0.3,
-        'pieces_threshold': 10,
-        'curve': {
-            'type': 'table',
-            'weights': [8, 10, 10, 8, 6, 4, 2, 1, 1, 1]
+        'intermediate': {
+            'blunder_cap': 350,
+            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1175, 'Skill Level': 5, 'MultiPV': 10},
+            'depth': 8,
+            'pick_temperature': 1.2,
+            'multipv': 10,
+            'mercy': {'mate_in': 2, 'mate_keep_prob': 0.55, 'eval_gap_threshold': 525, 'eval_keep_prob': 0.60},
+            'endgame_depth_delta': -1,
+            'endgame_temp_delta': 0.3,
+            'pieces_threshold': 10,
+            'curve': {'type': 'table', 'weights': [16, 14, 10, 6, 4, 2, 1, 1, 1, 1]},
         },
-    },
-    'adept': {
-        'blunder_cap': 350,
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1175, 'Skill Level': 5, 'MultiPV': 10},
-        'depth': 8,
-        'pick_temperature': 1.2,
-        'multipv': 10,
-        'mercy': {'mate_in': 2, 'mate_keep_prob': 0.55, 'eval_gap_threshold': 525, 'eval_keep_prob': 0.60},
-        'endgame_depth_delta': -1,
-        'endgame_temp_delta': 0.3,
-        'pieces_threshold': 10,
-        'curve': {
-            'type': 'table',
-            'weights': [16, 14, 10, 6, 4, 2, 1, 1, 1, 1]
+        'advanced': {
+            'blunder_cap': 50,
+            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1700, 'Skill Level': 12, 'MultiPV': 10},
+            'depth': 14,
+            'pick_temperature': 0.0,
+            'multipv': 10,
+            'mercy': None,
+            'endgame_depth_delta': -1,
+            'endgame_temp_delta': 0.0,
+            'pieces_threshold': 10,
+            'curve': {'type': 'table', 'weights': [64, 16, 4, 1, 1, 1, 1, 1, 1, 1]},
         },
-    },
-    'ninja': {
-        'blunder_cap': 150,
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1450, 'Skill Level': 8, 'MultiPV': 10},
-        'depth': 10,
-        'pick_temperature': 0.7,
-        'multipv': 10,
-        'mercy': {'mate_in': 1, 'mate_keep_prob': 0.90, 'eval_gap_threshold': 700, 'eval_keep_prob': 0.85},
-        'endgame_depth_delta': -1,
-        'endgame_temp_delta': 0.3,
-        'pieces_threshold': 10,
-        'curve': {
-            'type': 'table',
-            'weights': [28, 20, 12, 6, 3, 1, 1, 1, 1, 1]
-        },
-    },
-    'sensei': {
-        'blunder_cap': 50,
-        'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1700, 'Skill Level': 12, 'MultiPV': 10},
-        'depth': 14,
-        'pick_temperature': 0.0,
-        'multipv': 10,
-        'mercy': None,
-        'endgame_depth_delta': -1,
-        'endgame_temp_delta': 0.0,
-        'pieces_threshold': 10,
-        'curve': {
-            'type': 'table',
-            'weights': [64, 16, 4, 1, 1, 1, 1, 1, 1, 1]
-        },
-    },
-}
+    }
+
+# Load personas from config file on module import
+DEFAULT_PERSONAS = _load_bot_config()
 
 # Internal default engine time (seconds) used for persona-driven play when no explicit
 # UI control is provided. This is intentionally internal — the fast/deep selector was

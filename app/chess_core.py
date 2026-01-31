@@ -24,33 +24,21 @@ BOT_PRESETS = {
         'engine_skill': None,
         'engine_time': 0.0,
     },
-    'grasshopper': {
-        'display_name': 'Grasshopper',
-        'engine_persona': 'grasshopper',
-        'engine_skill': 0,
+    'beginner': {
+        'display_name': 'Beginner',
+        'engine_persona': 'beginner',
+        'engine_skill': 1,
         'engine_time': 0.25,
     },
-    'student': {
-        'display_name': 'Student',
-        'engine_persona': 'student',
-        'engine_skill': 2,
-        'engine_time': 0.30,
-    },
-    'adept': {
-        'display_name': 'Adept',
-        'engine_persona': 'adept',
+    'intermediate': {
+        'display_name': 'Intermediate',
+        'engine_persona': 'intermediate',
         'engine_skill': 5,
         'engine_time': 0.35,
     },
-    'ninja': {
-        'display_name': 'Ninja',
-        'engine_persona': 'ninja',
-        'engine_skill': 8,
-        'engine_time': 0.40,
-    },
-    'sensei': {
-        'display_name': 'Sensei',
-        'engine_persona': 'sensei',
+    'advanced': {
+        'display_name': 'Advanced',
+        'engine_persona': 'advanced',
         'engine_skill': 12,
         'engine_time': 0.5,
     },
