@@ -1,0 +1,476 @@
+:root {
+	--bg: #e8f6ff; /* light blue page background */
+	--text: #032433; /* dark navy text for contrast */
+	--muted: #3b6b7f;
+	--card: #ffffff;
+	--card-accent: rgba(14,95,61,0.06); /* light green tint for form fields */
+	--card-accent-strong: #f1fbf6;
+	--modal-overlay: rgba(0,0,0,0.5);
+	--danger: #3aa0ff; /* light blue for light theme */
+}
+
+[data-theme="dark"] {
+	--bg: #042a1a; /* deep green for dark theme */
+	--text: #e8f7ee; /* light text for contrast on green */
+	--muted: #9fc9a8;
+	--card: #07351f;
+	--card-accent: rgba(11,77,50,0.12);
+	--card-accent-strong: rgba(7,41,26,0.35);
+	--modal-overlay: rgba(0,0,0,0.75);
+	--danger: #0b8043; /* deep green for dark theme */
+}
+
+/* Ensure dragged chess piece stays visible during drag */
+.piece-417db {
+	z-index: 10000 !important;
+	cursor: grab !important;
+}
+.piece-417db:active,
+.piece-417db.dragging {
+	cursor: grabbing !important;
+	opacity: 1 !important;
+	z-index: 10001 !important;
+}
+
+html, body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: Arial, sans-serif;
+	margin: 20px;
+}
+
+#status { margin-top: 12px; color: var(--muted); }
+
+/* Result announcement (theme-aware) */
+#result-indicator { margin-top: 6px; font-weight: 600; color: var(--text); }
+.result-win { color: var(--text); }
+.result-draw { color: var(--muted); }
+
+/* Promotion modal styles */
+.modal.hidden { display: none; }
+.modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: var(--modal-overlay); display:flex; align-items:center; justify-content:center; z-index:9999; }
+.modal-content { background: var(--card); padding:16px 20px; border-radius:6px; text-align:center; min-width:260px; color: var(--text); }
+.promo-buttons { display:flex; gap:8px; justify-content:center; margin:12px 0; }
+.promo-btn { padding:8px 12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; background:transparent; border:1px solid transparent; color:var(--text); }
+.promo-img { width:36px; height:36px; display:inline-block; }
+.promo-label { font-size:12px; color:var(--text); }
+.promo-cancel { margin-top:8px; background:transparent; border:0; color:var(--muted); cursor:pointer; }
+
+/* Theme toggle button (small, unobtrusive) */
+#theme-toggle { margin-left:12px; padding:6px 10px; cursor:pointer; border-radius:4px; border:1px solid rgba(0,0,0,0.08); background:transparent; color:var(--text); }
+
+/* Small visual adjustments for dark mode contrast */
+[data-theme="dark"] #theme-toggle { border-color: rgba(255,255,255,0.08); }
+
+/* Two-column layout */
+.layout { display:flex; gap:24px; align-items:flex-start; }
+.left-col { flex: 0 0 65%; min-width: 520px; }
+.right-col { flex: 1 1 35%; max-width:420px; }
+
+.page-header { display:flex; align-items:center; gap:12px; justify-content:space-between; }
+
+.persona-indicator {
+	margin-left:12px;
+	font-size:13px;
+	color: var(--text);
+	font-weight:700;
+	background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.04));
+	padding:6px 10px;
+	border-radius:999px;
+	box-shadow: 0 6px 18px rgba(2,6,8,0.06);
+	border: 1px solid rgba(0,0,0,0.06);
+	display:inline-block;
+	min-width:96px;
+	text-align:center;
+}
+
+.turn-area { margin-bottom:12px; }
+.turn-status { margin-bottom:6px; color: var(--muted); font-weight:600; }
+
+/* Board controls beside the board */
+.board-wrap { display:flex; flex-direction:column; gap:12px; align-items:flex-start; position: relative; }
+.board-controls { display:flex; flex-direction:column; gap:8px; align-items:flex-start; margin-left:6px; }
+.ctrl.small { padding:6px 8px; font-size:13px; }
+
+/* Controls placed above the board */
+/* board-top-controls removed; buttons moved into .board-controls */
+
+/* Tabs above the board */
+.tabs { display:flex; gap:8px; margin-bottom:10px; }
+.tab-btn { padding:8px 12px; border-radius:6px; border:1px solid rgba(0,0,0,0.06); background:var(--card); cursor:pointer; font-weight:600; }
+.tab-btn[aria-selected="true"] { box-shadow: 0 1px 0 rgba(0,0,0,0.06) inset; background: linear-gradient(#fff,#f6f6f6); }
+.tab-cards { display:flex; gap:12px; margin-top:12px; }
+.tab-card { padding:10px; background:var(--card); border:1px solid rgba(0,0,0,0.06); border-radius:6px; flex:1; display:none; }
+.tab-card h3 { margin:0 0 6px 0; }
+.tab-card[data-tab="game"] { display:block; }
+
+/* Simulator form fields: light green, card-like inputs */
+.sim-form input[type="number"],
+.sim-form input[type="text"],
+.sim-form select,
+.sim-form textarea,
+.sim-form button {
+	background: var(--card-accent-strong);
+	border: 1px solid rgba(0,0,0,0.06);
+	color: var(--text);
+	padding: 8px 10px;
+	border-radius: 8px;
+}
+.sim-form textarea { height:120px; }
+
+[data-theme="dark"] .sim-form input[type="number"],
+[data-theme="dark"] .sim-form input[type="text"],
+[data-theme="dark"] .sim-form select,
+[data-theme="dark"] .sim-form textarea,
+[data-theme="dark"] .sim-form button {
+	background: var(--card-accent-strong);
+	border: 1px solid rgba(255,255,255,0.06);
+	color: var(--text);
+}
+
+/* Board container larger by default; responsive */
+/* Board sizing: scale with viewport but cap to avoid forcing scroll
+	 - Use viewport-height as primary driver so the board fits without vertical scroll
+	 - Constrain by max-width to keep layout tidy on wide screens */
+#board-container {
+	width: min(72vh, 75vw);
+	max-width: 900px;
+	min-width: 360px;
+	max-height: calc(100vh - 220px);
+	position: relative;
+}
+
+/* Keep the board square using aspect-ratio where supported; fallback allows chessboard.js to size */
+#board {
+	width: 100%;
+	aspect-ratio: 1 / 1;
+	height: auto;
+	border: 4px solid #000000; /* Black border around the board */
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Subtle shadow for depth */
+}
+
+.board-bottom-controls { display:flex; gap:8px; margin-top:8px; justify-content:center; }
+
+/* Anchored captured-trays when positioned below the board on left or right */
+.captured-trays.anchored-right { position: absolute; bottom: -46px; right: 8px; z-index: 30; }
+.captured-trays.anchored-left { position: absolute; bottom: -46px; left: 8px; z-index: 30; }
+
+/* Make piece palette appear under the board on small screens */
+@media (max-width:800px) {
+	#board-container { max-width:100%; }
+	.tab-cards { flex-direction:column; }
+}
+
+/* Accordion */
+.accordion { border: 1px solid rgba(0,0,0,0.06); border-radius:6px; overflow:hidden; background: var(--card); }
+.accordion-item + .accordion-item { border-top: 1px solid rgba(0,0,0,0.04); }
+.accordion-toggle { width:100%; text-align:left; padding:10px 12px; background:transparent; border:0; cursor:pointer; font-weight:600; color:var(--text); }
+.accordion-content { padding:10px 12px; display:none; }
+.accordion-content.open { display:block; }
+
+.control-group { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+.ctrl { padding:6px 12px; border-radius:4px; border:1px solid rgba(0,0,0,0.08); background:transparent; cursor:pointer; color:var(--text); box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; text-align:center; white-space:nowrap; min-width:120px; height:36px; }
+.ctrl.danger { color:var(--danger); }
+
+/* Ensure small variant matches same size for visual consistency */
+.ctrl.small { padding:6px 12px; font-size:13px; min-width:120px; height:36px; }
+
+/* Play button states: green for start, red for resign (text color) */
+.ctrl.play-start { color: #0a8f0a; font-weight:700; }
+.ctrl.play-resign { color: #c02626; font-weight:700; }
+[data-theme="dark"] .ctrl { border-color: rgba(255,255,255,0.06); }
+
+/* Persona indicator dark-mode treatment */
+[data-theme="dark"] .persona-indicator {
+	color: var(--text);
+	background: linear-gradient(90deg, rgba(11,77,50,0.9), rgba(6,48,31,0.95));
+	border: 1px solid rgba(255,255,255,0.06);
+	box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+}
+
+.hint { font-size:12px; color:var(--muted); }
+
+.visually-hidden { display:none !important; }
+
+.engine-controls input[type="range"] { width:100%; margin-top:6px; }
+
+.move-list { margin-top:6px; width:100%; height:112px; overflow:auto; border:1px solid rgba(0,0,0,0.06); padding:6px; font-family:monospace; font-size:13px; line-height:20px; background:var(--card); color:var(--text); }
+
+/* Captured piece trays */
+.captured-trays { display:flex; gap:12px; margin-top:8px; }
+.captured-tray { display:flex; flex-direction:column; gap:6px; flex:1; }
+.tray-label { font-size:12px; color:var(--muted); font-weight:600; }
+.tray-items { display:flex; gap:6px; flex-wrap:wrap; min-height:28px; align-items:center; }
+.captured-piece { width:24px; height:24px; display:inline-block; }
+
+/* Numeric badge next to captured piece icons */
+.tray-badge { display:inline-block; margin-left:6px; font-size:12px; color:var(--text); background: rgba(0,0,0,0.06); padding:2px 6px; border-radius:10px; min-width:18px; text-align:center; line-height:18px; }
+
+[data-theme="dark"] .tray-badge { background: rgba(255,255,255,0.06); color:var(--text); }
+
+/* Wrapper for each captured piece icon (used by JS) */
+.tray-item { display:inline-flex; align-items:center; gap:6px; margin-right:4px; }
+
+/* Material advantage badge shown next to the captured-tray container */
+.score-badge { display:inline-block; padding:4px 8px; border-radius:8px; font-weight:700; font-size:0.95em; background: rgba(40,167,69,0.08); color: #28a745; margin-left:8px; }
+[data-theme="dark"] .score-badge { background: rgba(40,167,69,0.12); color: #9ff0b8; }
+
+/* brief highlight when trays update */
+.tray-items.tray-flash { animation: trayFlash 420ms ease-in-out; }
+@keyframes trayFlash { 0% { background: rgba(255,255,0,0.12); } 100% { background: transparent; } }
+
+@media (max-width:800px) {
+	.layout { flex-direction:column; }
+	.right-col { max-width:100%; }
+}
+
+/* Dev debug panel theme-aware styling */
+/* Dev debug panel: force a light, high-contrast appearance so it's readable
+   even when the site is in dark mode. This panel is dev-only and should
+   remain visually distinct from the rest of the UI. */
+#dev-debug-panel {
+	background: #ffffff; /* light card */
+	color: #0b1220; /* dark text for readability */
+	border: 1px solid rgba(0,0,0,0.08);
+	box-shadow: 0 6px 18px rgba(2,6,8,0.12);
+	opacity: 0.96;
+}
+
+/* Ensure the same readable styling in dark theme (override theme variables).
+   Keep it developer-facing only so we intentionally break theme here. */
+[data-theme="dark"] #dev-debug-panel {
+	background: #ffffff;
+	color: #0b1220;
+	border: 1px solid rgba(0,0,0,0.12);
+	box-shadow: 0 6px 18px rgba(2,6,8,0.18);
+	opacity: 0.96;
+}
+
+/* Dark theme: slightly lighter border for move list */
+[data-theme="dark"] .move-list { border-color: rgba(255,255,255,0.06); }
+
+/* Tap-to-move selection highlight */
+.square-55d63.highlight-selected {
+	background: yellow !important;
+	opacity: 0.5;
+}
+
+/* =========================================
+   MOBILE & TABLET RESPONSIVENESS
+   ========================================= */
+@media only screen and (max-width: 850px) {
+	/* Stack columns vertically */
+	.layout {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		padding: 5px;
+	}
+	/* Full width columns */
+	.left-col, .right-col {
+		width: 100%;
+		max-width: 100%;
+		margin-right: 0;
+	}
+	/* Force board to fit screen width */
+	#board-container {
+		width: 100%;
+		max-width: 100vw;
+		padding: 0;
+	}
+	/* Maintain square aspect ratio */
+	#board {
+		width: 100% !important;
+		height: auto !important;
+		aspect-ratio: 1 / 1;
+	}
+	/* Move panels below */
+	.panel {
+		margin-top: 15px;
+		width: 100%;
+	}
+	/* Shrink header */
+	.page-header h1 {
+		font-size: 1.5rem;
+	}
+}
+
+/* =========================================
+   GAME FOCUS MODE - Dim background during play
+   ========================================= */
+
+/* Overlay that dims everything except the board */
+.game-focus-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.4); /* Semi-transparent black */
+	pointer-events: none; /* Allow clicks to pass through */
+	opacity: 0;
+	transition: opacity 0.3s ease-in-out;
+	z-index: 5; /* Below modals but above content */
+}
+
+/* Active state - show the overlay */
+body.game-in-progress .game-focus-overlay {
+	opacity: 1;
+}
+
+/* Ensure board and controls stay above the overlay */
+.board-wrap,
+#board-container,
+#board,
+.in-game-panel {
+	position: relative;
+	z-index: 10; /* Above the dimming overlay */
+}
+
+/* Keep buttons and game controls clickable and visible */
+.board-controls,
+.board-bottom-controls,
+#hint-btn,
+.result-panel {
+	position: relative;
+	z-index: 10;
+}
+
+/* Feedback Button (floating bottom-right) */
+.feedback-button {
+	position: fixed;
+	bottom: 20px;
+	right: 20px;
+	background-color: #4CAF50;
+	color: white;
+	border: none;
+	padding: 12px 20px;
+	font-size: 16px;
+	border-radius: 25px;
+	cursor: pointer;
+	box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+	z-index: 1000;
+	transition: all 0.3s ease;
+}
+
+.feedback-button:hover {
+	background-color: #45a049;
+	transform: translateY(-2px);
+	box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+}
+
+/* Modal Styles */
+.modal {
+	display: none;
+	position: fixed;
+	z-index: 1001;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+	background-color: #fefefe;
+	margin: 10% auto;
+	padding: 30px;
+	border: 1px solid #888;
+	border-radius: 10px;
+	width: 90%;
+	max-width: 500px;
+	box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.close {
+	color: #aaa;
+	float: right;
+	font-size: 28px;
+	font-weight: bold;
+	cursor: pointer;
+	line-height: 20px;
+}
+
+.close:hover,
+.close:focus {
+	color: #000;
+}
+
+.modal-content h2 {
+	margin-top: 0;
+	color: #333;
+}
+
+.modal-content p {
+	color: #666;
+	margin-bottom: 20px;
+}
+
+#feedbackForm label {
+	display: block;
+	margin-top: 15px;
+	margin-bottom: 5px;
+	font-weight: bold;
+	color: #333;
+}
+
+#feedbackForm input[type="text"],
+#feedbackForm textarea {
+	width: 100%;
+	padding: 10px;
+	border: 1px solid #ddd;
+	border-radius: 5px;
+	font-size: 14px;
+	box-sizing: border-box;
+}
+
+#feedbackForm textarea {
+	resize: vertical;
+	font-family: inherit;
+}
+
+.button-group {
+	display: flex;
+	gap: 10px;
+	margin-top: 20px;
+}
+
+.submit-btn,
+.cancel-btn {
+	flex: 1;
+	padding: 12px;
+	border: none;
+	border-radius: 5px;
+	font-size: 16px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+.submit-btn {
+	background-color: #4CAF50;
+	color: white;
+}
+
+.submit-btn:hover {
+	background-color: #45a049;
+}
+
+.cancel-btn {
+	background-color: #f44336;
+	color: white;
+}
+
+.cancel-btn:hover {
+	background-color: #da190b;
+}
+
+#feedbackSuccess {
+	text-align: center;
+	padding: 20px;
+}
+
+#feedbackSuccess p {
+	color: #4CAF50;
+	font-size: 18px;
+	font-weight: bold;
+}
