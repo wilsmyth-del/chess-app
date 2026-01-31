@@ -258,7 +258,7 @@
     const feedbackBtn = document.getElementById('feedbackBtn');
     const feedbackForm = document.getElementById('feedbackForm');
     const feedbackSuccess = document.getElementById('feedbackSuccess');
-    const closeBtn = document.querySelector('.close');
+    const feedbackCloseBtn = feedbackModal ? feedbackModal.querySelector('.close') : null;
 
     // Open modal
     if (feedbackBtn) {
@@ -268,8 +268,8 @@
     }
 
     // Close modal
-    if (closeBtn) {
-      closeBtn.onclick = function() {
+    if (feedbackCloseBtn) {
+      feedbackCloseBtn.onclick = function() {
         closeFeedbackModal();
       }
     }
@@ -281,11 +281,11 @@
     }
 
     // Close if clicking outside modal
-    window.onclick = function(event) {
+    window.addEventListener('click', function(event) {
       if (event.target === feedbackModal) {
         closeFeedbackModal();
       }
-    }
+    });
 
     // Handle form submission
     if (feedbackForm) {

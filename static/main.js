@@ -15,14 +15,12 @@ const ChessSounds = {
   init() {
     try {
       this.move = new Audio('/static/sounds/move.ogg');
-      this.check = new Audio('/static/sounds/check.ogg');
-      this.checkmate = new Audio('/static/sounds/checkmate.ogg');
+      this.check = null;      // Handled by ChessVoice TTS
+      this.checkmate = null;  // Handled by ChessVoice TTS
       this.select = new Audio('/static/sounds/select.mp3');
       
       // Preload sounds
       this.move.load();
-      this.check.load();
-      this.checkmate.load();
       this.select.load();
       
       console.log('Chess sounds loaded');

@@ -1,4 +1,13 @@
 # CHANGELOG — Chess (2026-01-01)
+## 2026-01-30 — Linux case-sensitivity fixes and browser console cleanup
+
+- **Fixed sound file case mismatch**: Renamed `Check.ogg`, `Checkmate.ogg`, and `Select.ogg` to lowercase (`check.ogg`, `checkmate.ogg`, `select.ogg`) so paths in `main.js` resolve correctly on Linux's case-sensitive filesystem. Previously these would 404 on the production server.
+- **Fixed broken check/checkmate sound files**: `check.ogg` and `checkmate.ogg` were placeholder text files (not real audio), causing `MediaError` decode failures in the browser console. Removed the broken Audio references since check and checkmate audio feedback is already handled by the `ChessVoice` browser TTS system.
+- **Fixed feedback modal close button selector**: `document.querySelector('.close')` in `index.html` was selecting the game-over modal's close button instead of the feedback modal's. Scoped the selector to `feedbackModal.querySelector('.close')` so each modal's close button works independently.
+- **Fixed global click handler override**: Changed `window.onclick = function(...)` to `window.addEventListener('click', ...)` for the feedback modal's outside-click-to-close behavior, preventing it from clobbering other click handlers (e.g. chessboard.js).
+
+Files changed: `static/main.js`, `templates/index.html`, `static/sounds/` (file renames)
+
 ## 2026-01-20 — Code cleanup and production readiness
 
 - **Fixed unreachable code in batch simulation**: The combined PGN file logic in `api_simulate_batch()` was placed after a `return` statement and never executed. Moved it before the return so batch simulations now properly generate combined PGN files.
