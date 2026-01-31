@@ -1,118 +1,6 @@
 /* Global state is managed by AppState. Backwards-compatible globals are
   declared later and mapped to AppState to support gradual refactoring. */
 
-// ============================================================================
-// SOUND SYSTEM
-// ============================================================================
-const ChessSounds = {
-  move: null,
-  check: null,
-  checkmate: null,
-  select: null,
-  enabled: true,
-
-  // Load all sound files
-  init() {
-    try {
-      this.move = new Audio('/static/sounds/move.ogg');
-      this.check = new Audio('/static/sounds/check.ogg');
-      this.checkmate = new Audio('/static/sounds/checkmate.ogg');
-      this.select = new Audio('/static/sounds/select.mp3');
-      
-      // Preload sounds
-      this.move.load();
-      this.check.load();
-      this.checkmate.load();
-      this.select.load();
-      
-      console.log('Chess sounds loaded');
-    } catch (e) {
-      console.warn('Failed to load sounds:', e);
-    }
-  },
-
-  // Play sound with error handling
-  play(soundName) {
-    if (!this.enabled) return;
-    try {
-      const sound = this[soundName];
-      if (sound) {
-        sound.currentTime = 0; // Reset to start
-        sound.play().catch(e => console.warn(`Sound play failed: ${soundName}`, e));
-      }
-    } catch (e) {
-      console.warn(`Error playing sound: ${soundName}`, e);
-    }
-  },
-
-  // Convenience methods
-  playMove() { this.play('move'); },
-  playCheck() { this.play('check'); },
-  playCheckmate() { this.play('checkmate'); },
-  playSelect() { this.play('select'); }
-};
-
-// ============================================================================
-// VOICE SYSTEM (Browser TTS - upgradeable to ElevenLabs later)
-// ============================================================================
-const ChessVoice = {
-  enabled: true,
-  delay: 0, // No delay - voice plays immediately with sound effects
-
-  // Phrase library - easy to swap for ElevenLabs audio files later
-  phrases: {
-    gameStart: "Let's play!",
-    check: "Check!",
-    checkmateWin: "Checkmate! You win!",
-    checkmateLose: "Checkmate! I win!",
-    draw: "It's a draw",
-    resignYou: "You resign",
-    resignOpponent: "I resign"
-  },
-
-  // Speak using browser TTS
-  speak(phraseKey) {
-    if (!this.enabled) return;
-    if (typeof window.speechSynthesis === 'undefined') {
-      console.warn('Speech synthesis not supported in this browser');
-      return;
-    }
-
-    try {
-      const text = this.phrases[phraseKey];
-      if (!text) {
-        console.warn(`Unknown phrase: ${phraseKey}`);
-        return;
-      }
-
-      // Add delay so sound effect finishes first
-      setTimeout(() => {
-        try {
-          const utterance = new SpeechSynthesisUtterance(text);
-          // Default voice settings (neutral, will upgrade to British lady later)
-          utterance.rate = 1.0;
-          utterance.pitch = 1.0;
-          utterance.volume = 1.0;
-          window.speechSynthesis.speak(utterance);
-        } catch (e) {
-          console.warn('Voice playback failed:', e);
-        }
-      }, this.delay);
-    } catch (e) {
-      console.warn('Voice system error:', e);
-    }
-  },
-
-  // Convenience methods
-  sayGameStart() { this.speak('gameStart'); },
-  sayCheck() { this.speak('check'); },
-  sayCheckmateWin() { this.speak('checkmateWin'); },
-  sayCheckmateLose() { this.speak('checkmateLose'); },
-  sayDraw() { this.speak('draw'); },
-  sayResignYou() { this.speak('resignYou'); },
-  sayResignOpponent() { this.speak('resignOpponent'); }
-};
-
 // Debounce tracking for tap-to-move to prevent double-triggering
 let lastHandledSquare = null;
 let lastHandledTime = 0;
@@ -1010,17 +898,6 @@ function setFen(fen, pushHistory = false) {
   try { if (b && typeof b.position === 'function') b.position(fen); } catch (e) { console.warn('setFen: board.position failed', e); }
   // sync compatibility globals
   game = g; board = b; AppState.setGame(g); AppState.setBoard(b);
-  
-  // Check sound: Play if current position is in check but not checkmate (checkmate plays its own sound)
-  try {
-    if (g && typeof g.in_check === 'function' && typeof g.in_checkmate === 'function') {
-      if (g.in_check() && !g.in_checkmate() && !g.in_stalemate()) {
-        ChessSounds.playCheck();
-        ChessVoice.sayCheck();
-      }
-    }
-  } catch (e) { console.warn('Check sound failed', e); }
-  
   try { clearArrows(); } catch (e) { console.error('Operation failed:', e); }
   const fenEl = document.getElementById('fen'); if (fenEl) fenEl.textContent = fen;
   updateResultIndicator();
@@ -1582,8 +1459,6 @@ function handleGameDrop(source, target, piece) {
   submitUci(source + target, prevFen);
   // 3. Update status
   setStatus('Move sent: ' + source + target);
-  // Play move sound
-  try { ChessSounds.playMove(); } catch (e) { console.warn('Sound playback failed', e); }
   // Accept the drop visually since we've already updated the board
   return 'trash';
 }
@@ -1630,9 +1505,6 @@ function submitUci(uci, prevFen) {
       let msg = 'Move played: ' + uci;
       if (resp.engine_reply) msg += ' | Engine: ' + resp.engine_reply;
       setStatus(msg);
-      
-      // Play move sound for engine's reply
-      try { ChessSounds.playMove(); } catch (e) { console.warn('Sound playback failed', e); }
 
       // If server reports game end, use the canonical PGN returned once
       if (resp.game_over) {
@@ -1640,10 +1512,7 @@ function submitUci(uci, prevFen) {
         lastFinalPgn = resp.pgn || null;
         const resultText = resp.reason ? `${resp.reason}  - ${resp.result}` : resp.result || '';
         setStatus('Game ended: ' + resultText);
-        // Play checkmate/game over sound
-        try { ChessSounds.playCheckmate(); } catch (e) { console.warn('Sound playback failed', e); }
-        
-        // Update result indicator and switch to RESULT UI (voice will be triggered in setUIState)
+        // Update result indicator and switch to RESULT UI
         const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
         try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
         setUIState('RESULT', { result: resp.result || '', reason: resp.reason || '', pgn: resp.pgn || '' });
@@ -1699,13 +1568,6 @@ function onDragStart(source, piece, position, orientation) {
 
 
 window.addEventListener('load', async () => {
-  // Initialize sound system
-  try {
-    ChessSounds.init();
-  } catch (e) {
-    console.warn('Failed to initialize sounds:', e);
-  }
-
   if (typeof Chess === 'undefined') {
     console.error('Chess.js not loaded  - `Chess` is undefined');
     return;
@@ -1761,8 +1623,6 @@ window.addEventListener('load', async () => {
           b.style.background = '#222'; b.style.color = '#fff';
         } else { b.style.background = 'transparent'; b.style.color = '#ccc'; }
         b.addEventListener('click', () => {
-          // Play select sound
-          try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
           try { input.value = v; } catch (e) { console.error('Operation failed:', e); }
           buttons.forEach(x => { if (x === b) { x.style.background = '#222'; x.style.color = '#fff'; } else { x.style.background = 'transparent'; x.style.color = '#ccc'; } });
           try { localStorage.setItem(inputId, v); } catch (e) { console.error('Operation failed:', e); }
@@ -2268,13 +2128,10 @@ window.addEventListener('load', async () => {
     const setup = document.getElementById('setup-panel');
     const ingame = document.getElementById('in-game-panel');
     const result = document.getElementById('result-panel');
-    const gameOverModal = document.getElementById('game-over-modal');
-    
     try {
       if (setup) setup.style.display = (state === 'SETUP') ? 'block' : 'none';
       if (ingame) ingame.style.display = (state === 'IN_GAME') ? 'block' : 'none';
-      // Keep result-panel hidden, use modal instead
-      if (result) result.style.display = 'none';
+      if (result) result.style.display = (state === 'RESULT') ? 'block' : 'none';
     } catch (e) { console.error('Operation failed:', e); }
 
     // Toggle dimming overlay for game focus mode
@@ -2295,57 +2152,14 @@ window.addEventListener('load', async () => {
       const opp = document.getElementById('engine-persona'); if (opp) opp.disabled = (state !== 'SETUP');
     } catch (e) { console.error('Operation failed:', e); }
 
-    // Show game-over modal when game ends
+    // Update result banner if provided
     if (state === 'RESULT' && info) {
       lastFinalPgn = info.pgn || null;
-      try {
-        // Update modal content
-        const modalTitle = document.getElementById('game-over-title');
-        const modalResult = document.getElementById('game-over-result');
-        const modalReason = document.getElementById('game-over-reason');
-        
-        if (modalTitle) modalTitle.textContent = 'Game Over';
-        if (modalResult) modalResult.textContent = info.result || '';
-        if (modalReason) modalReason.textContent = info.reason || '';
-        
-        // Show modal
-        if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'false');
-        
-        // Play appropriate voice based on result
-        try {
-          const result = info.result || '';
-          const reason = info.reason || '';
-          const playerColor = (playerSelect && playerSelect.value) ? playerSelect.value.toLowerCase() : 'white';
-          
-          // Determine if player won, lost, or draw
-          if (reason.toLowerCase().includes('draw') || result.includes('1/2')) {
-            ChessVoice.sayDraw();
-          } else if (reason.toLowerCase().includes('resign')) {
-            // Check who resigned based on result
-            if ((playerColor === 'white' && result === '0-1') || (playerColor === 'black' && result === '1-0')) {
-              ChessVoice.sayResignYou();
-            } else {
-              ChessVoice.sayResignOpponent();
-            }
-          } else if (result === '1-0') {
-            // White won
-            ChessVoice[playerColor === 'white' ? 'sayCheckmateWin' : 'sayCheckmateLose']();
-          } else if (result === '0-1') {
-            // Black won
-            ChessVoice[playerColor === 'black' ? 'sayCheckmateWin' : 'sayCheckmateLose']();
-          } else {
-            // Fallback - default to checkmate win
-            ChessVoice.sayCheckmateWin();
-          }
-        } catch (e) { console.warn('Voice playback failed', e); }
-      } catch (e) { console.error('Failed to show game-over modal:', e); }
-    } else {
-      // Hide modal when not in RESULT state
-      try {
-        if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'true');
-      } catch (e) { console.error('Operation failed:', e); }
+      const banner = document.getElementById('result-banner');
+      const reasonEl = document.getElementById('result-reason');
+      if (banner) banner.textContent = info.result || '';
+      if (reasonEl) reasonEl.textContent = info.reason || '';
     }
-    
     // Hint button visibility
     try {
       const hintBtn = document.getElementById('hint-btn');
@@ -2401,12 +2215,6 @@ window.addEventListener('load', async () => {
     const endBtn = document.getElementById('end-game-btn');
     const downloadFinal = document.getElementById('download-final-pgn');
     const newGameBtn = document.getElementById('new-game-btn');
-    
-    // Game-over modal elements
-    const modalDownloadPgn = document.getElementById('modal-download-pgn');
-    const modalNewGame = document.getElementById('modal-new-game');
-    const gameOverClose = document.getElementById('game-over-close');
-    const gameOverModal = document.getElementById('game-over-modal');
 
     if (pname) pname.value = localStorage.getItem('playerName') || pname.value || '';
 
@@ -2417,7 +2225,6 @@ window.addEventListener('load', async () => {
       await doResign();
     });
 
-    // Original download button (if still exists in result-panel, keep for backwards compatibility)
     if (downloadFinal) downloadFinal.addEventListener('click', async () => {
       try {
         if (lastFinalPgn) {
@@ -2429,73 +2236,6 @@ window.addEventListener('load', async () => {
         }
       } catch (e) { setStatus('Download failed'); }
     });
-    
-    // Modal download PGN button
-    if (modalDownloadPgn) modalDownloadPgn.addEventListener('click', async () => {
-      // Play select sound
-      try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
-      try {
-        if (lastFinalPgn) {
-          const blob = new Blob([lastFinalPgn], { type: 'text/plain;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a'); a.href = url; a.download = 'game.pgn'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-          setStatus('PGN downloaded');
-        } else {
-          setStatus('No PGN available');
-        }
-      } catch (e) { setStatus('Download failed'); }
-    });
-    
-    // Modal new game button - close modal and reset game
-    if (modalNewGame) modalNewGame.addEventListener('click', async () => {
-      // Play select sound
-      try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
-      try {
-        // Close modal
-        if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'true');
-        
-        // Reset game (same logic as newGameBtn)
-        try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
-        gameOver = false;
-        lastFinalPgn = null;
-        try { setUIState('SETUP'); } catch (e) { console.error('Operation failed:', e); }
-        
-        // Reset the board
-        await fetch('/api/game/reset', { method: 'POST' });
-        try {
-          const resp = await fetch('/api/game/init');
-          const data = await resp.json();
-          if (data && data.ok) {
-            game = new Chess(data.fen || 'start');
-            board.position(data.fen || 'start', false);
-            if (data.player_color && data.player_color.toLowerCase() === 'black') {
-              board.orientation('black');
-            } else {
-              board.orientation('white');
-            }
-            updateCapturedPieces();
-            updateStatus();
-          }
-        } catch (e) { console.error('Failed to reset board:', e); }
-      } catch (e) { console.error('Failed to start new game:', e); }
-    });
-    
-    // Modal close button (X)
-    if (gameOverClose) gameOverClose.addEventListener('click', () => {
-      try {
-        if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'true');
-        // Don't auto-reset when closing with X, user can click New Game if they want
-      } catch (e) { console.error('Operation failed:', e); }
-    });
-    
-    // Close modal when clicking outside
-    if (gameOverModal) {
-      gameOverModal.addEventListener('click', (event) => {
-        if (event.target === gameOverModal) {
-          gameOverModal.setAttribute('aria-hidden', 'true');
-        }
-      });
-    }
 
     if (newGameBtn) {
       newGameBtn.addEventListener('click', async () => {
@@ -2971,11 +2711,8 @@ window.addEventListener('load', async () => {
 
     // 7. Start the Engine/Server Game
     try { setPlayEngine(true); } catch (e) { console.error('Operation failed:', e); }
-    
-    // 8. Play game start voice
-    try { ChessVoice.sayGameStart(); } catch (e) { console.warn('Voice playback failed', e); }
 
-    // 9. Update Displays
+    // 8. Update Displays
     try { updatePlayersDisplay(); } catch (e) { console.error('Operation failed:', e); }
     try {
       const hintBtn = document.getElementById('hint-btn');
@@ -2992,8 +2729,6 @@ window.addEventListener('load', async () => {
     // ensure button is enabled and wired
     try { playBtn.disabled = false; } catch (e) { console.error('Operation failed:', e); }
     playBtn.addEventListener('click', async (ev) => {
-      // Play select sound for button click
-      try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
       try {
         if (!playEngine) {
           // start the game via unified entrypoint
