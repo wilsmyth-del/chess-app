@@ -1,18 +1,38 @@
 # CHANGELOG — Chess (2026-01-01)
 ## 2026-01-21 — Feedback widget and server storage
 
-- **Added feedback UI:** Floating feedback button and modal were added to `templates/index.html` to let users send feedback without leaving the page.
-- **Client JS:** Added handlers to submit feedback (POST JSON) to the server route `/submit-feedback` and a small success state in the modal.
-- **CSS:** Styles for the floating button and modal were appended to `static/style.css`.
-- **Server route:** Added `/submit-feedback` in `server.py` which persists submissions to `feedback/user_feedback.txt` (timestamped).
-- **Consolidation:** Deprecated the duplicate `/api/feedback` endpoint and consolidated any existing `feedback.txt` contents into the canonical `feedback/user_feedback.txt` file.
-- **VCS:** Added `feedback/` to `.gitignore` so user feedback is not committed.
 
 Files changed: `templates/index.html`, `static/style.css`, `server.py`, `app/api.py`, `.gitignore`
 
-- **UI tweak:** Updated the floating feedback button color to green (#4CAF50) to match the persona badge (file: `templates/index.html`).
 
 ## 2026-01-20 — Code cleanup and production readiness
+## v2.0.1 — 2026-01-31
+
+- **Added:** Centralized configuration via a new single source of truth: `bot_config.json`.
+- **Added:** Consolidated bot lineup to three personas: Beginner, Intermediate, Advanced.
+
+- **Changed:** Reduced bot count from five (Grasshopper, Student, Adept, Ninja, Sensei) to three (Beginner, Intermediate, Advanced).
+- **Changed:** `app/engine_personas.py` now loads bot settings from JSON instead of hardcoded dicts.
+- **Changed:** `app/chess_core.py` updated `BOT_PRESETS` to reference the three new bot names.
+- **Changed:** `static/main.js` updated `BOT_PROFILES` to match the 3-bot system.
+- **Changed:** `templates/index.html` UI buttons updated to show only the three bot options.
+- **Changed:** Default bot changed from "Student" to "Intermediate".
+
+- **Fixed:** Resolved four fallback reference bugs in `static/main.js` that were causing null profile errors.
+- **Fixed:** Corrected HTML button mismatch where `data-value` and display text were inconsistent.
+
+**Technical details**
+- **New bots & ratings:** Beginner (450 Elo), Intermediate (1175 Elo), Advanced (1700 Elo).
+- **Config:** The JSON-based config system allows tuning bot settings without code changes.
+- **Compatibility:** Maintains backward compatibility with existing saved games.
+- **Deployment:** All changes tested and deployed to the v2 development environment.
+
+**Files**
+- **New:** `bot_config.json`
+- **Modified:** `app/engine_personas.py` — added config loader
+- **Modified:** `app/chess_core.py` — updated `BOT_PRESETS`
+- **Modified:** `static/main.js` — updated `BOT_PROFILES` and fallbacks fixed
+- **Modified:** `templates/index.html` — UI updated for 3 bots
 
 - **Fixed unreachable code in batch simulation**: The combined PGN file logic in `api_simulate_batch()` was placed after a `return` statement and never executed. Moved it before the return so batch simulations now properly generate combined PGN files.
 - **Removed duplicate code in api.py**: Deleted duplicate `opponent_preset` handling block and duplicate `if engine_persona` block in `api_engine_move()` that were processing the same data twice.
