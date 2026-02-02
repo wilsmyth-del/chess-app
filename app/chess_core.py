@@ -24,33 +24,21 @@ BOT_PRESETS = {
         'engine_skill': None,
         'engine_time': 0.0,
     },
-    'grasshopper': {
-        'display_name': 'Grasshopper',
-        'engine_persona': 'grasshopper',
-        'engine_skill': 0,
+    'beginner': {
+        'display_name': 'Beginner',
+        'engine_persona': 'beginner',
+        'engine_skill': 1,
         'engine_time': 0.25,
     },
-    'student': {
-        'display_name': 'Student',
-        'engine_persona': 'student',
-        'engine_skill': 2,
-        'engine_time': 0.30,
-    },
-    'adept': {
-        'display_name': 'Adept',
-        'engine_persona': 'adept',
+    'intermediate': {
+        'display_name': 'Intermediate',
+        'engine_persona': 'intermediate',
         'engine_skill': 5,
         'engine_time': 0.35,
     },
-    'ninja': {
-        'display_name': 'Ninja',
-        'engine_persona': 'ninja',
-        'engine_skill': 8,
-        'engine_time': 0.40,
-    },
-    'sensei': {
-        'display_name': 'Sensei',
-        'engine_persona': 'sensei',
+    'advanced': {
+        'display_name': 'Advanced',
+        'engine_persona': 'advanced',
         'engine_skill': 12,
         'engine_time': 0.5,
     },
@@ -181,8 +169,6 @@ class ChessGame:
             return False, None, None
 
     def end_game(self, reason, winner=None, user_side=None, user_name=None, opponent_name=None):
-        self._load_state()  # Sync history first
-
         """Finalize the game exactly once and return payload with final PGN."""
         if getattr(self, 'status', None) == 'ENDED':
             return {'game_over': True, 'reason': self.end_reason, 'result': self.result, 'pgn': self.pgn_final}
@@ -361,20 +347,25 @@ class ChessGame:
         self._save_state()  # <--- FORCE SAVE (Wipe the whiteboard)
 
     def _allowed_blunders_for_persona(self, persona: str):
-        # defaults per persona
+        # defaults per persona (style name → allowed blunders per game)
         try:
             if not persona:
                 return 0
             p = persona.lower()
-            if p == 'grasshopper':
+            if p == 'reckless':
                 return 3
-            if p == 'student':
+            if p == 'aggressive':
                 return 2
-            if p == 'adept':
+            if p == 'cautious':
                 return 1
-            if p == 'ninja':
-                return 1
-            if p == 'sensei':
+            if p == 'perfect':
+                return 0
+            # pre-configured bot names
+            if p == 'beginner':
+                return 3
+            if p in ('intermediate', 'aggressive_intermediate', 'wildcard'):
+                return 2
+            if p == 'advanced':
                 return 0
         except Exception:
             pass

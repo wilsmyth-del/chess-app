@@ -1,0 +1,12 @@
+[Event "Casual Game"]
+[Site "Wil's Chess"]
+[Date "2026.02.01"]
+[Round "1"]
+[White "wilsmyth"]
+[Black "Engine"]
+[Result "0-1"]
+[Termination "resign"]
+
+1. d4 e6 2. Bf4 d5 3. Nf3 c5 4. e3 Be7 5. Bb5+ Nd7 6. c3 Qb6 7. Qd3 a6 8. Ba4
+Nf6 9. Ne5 cxd4 10. exd4 Qxb2 11. Nd2 Qxa1+ 12. Ke2 Qxa2 13. Bc2 Qa5 14. Ndf3
+Ne4 15. Qxe4 dxe4 0-1

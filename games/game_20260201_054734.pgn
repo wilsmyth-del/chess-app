@@ -1,0 +1,14 @@
+[Event "Casual Game"]
+[Site "Wil's Chess"]
+[Date "2026.02.01"]
+[Round "1"]
+[White "wilsmyth"]
+[Black "perfect"]
+[Result "0-1"]
+[Termination "checkmate"]
+
+1. d4 Nf6 2. c4 e6 3. e3 c5 4. b3 d5 5. e4 dxe4 6. Qe2 cxd4 7. Bb2 Nc6 8. b4 d3
+9. Qe3 Nxb4 10. Qxd3 Nxd3+ 11. Bxd3 Qb6 12. Bxe4 Qxb2 13. Nd2 Qxa1+ 14. Ke2
+Qxa2 15. Nf3 e5 16. Rd1 Nxe4 17. Nd4 exd4 18. Ke1 Bb4 19. Kf1 Nxd2+ 20. Rxd2
+Qa1+ 21. Ke2 d3+ 22. Kxd3 Qf1+ 23. Re2+ Kd7 24. g3 Kd8 25. g4 Qb1+ 26. Ke3 Re8+
+27. Kf3 Qh1+ 28. Kg3 Qg1+ 29. Kf3 Qxg4# 0-1

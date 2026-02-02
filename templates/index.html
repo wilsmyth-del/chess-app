@@ -6,7 +6,7 @@
     <title>Chess</title>
 
     <link rel="stylesheet" href="/static/vendor/chessboard-1.0.0.min.css" />
-    <link rel="stylesheet" href="/static/index.css" />
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <!-- Dimming overlay for game focus mode -->
@@ -16,7 +16,7 @@
     <div class="page-header">
       <h1>Chess</h1>
       <button id="theme-toggle" aria-pressed="false">Dark Mode</button>
-      <div id="persona-indicator" class="persona-indicator">Persona: Student</div>
+      <div id="persona-indicator" class="persona-indicator">Persona: Intermediate</div>
     </div>
 
     <div class="layout">
@@ -29,6 +29,8 @@
               <!-- Bottom controls: Export FEN (Download PGN removed; server auto-saves) -->
               <div class="board-bottom-controls">
                 <button id="export-fen-btn" class="ctrl small">Export FEN</button>
+                <button id="download-pgn-btn-game" class="ctrl small">Download PGN</button>
+                <button id="reset-btn" class="ctrl small">Reset</button>
               </div>
 
               <!-- Small floating Tools button (removed for public release) -->
@@ -65,15 +67,32 @@
                 <button type="button" data-value="black" class="pill-btn">Black</button>
               </div>
             </div>
-            <input type="hidden" id="engine-persona" value="Student" />
+            <input type="hidden" id="bot-strength" value="moderate" />
+            <input type="hidden" id="bot-style" value="cautious" />
             <div class="form-group">
-              <label>Opponent</label>
-              <div id="engine-persona-pills" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px">
-                <button type="button" data-value="Grasshopper" class="pill-btn">Grasshopper</button>
-                <button type="button" data-value="Student" class="pill-btn pill-selected">Student</button>
-                <button type="button" data-value="Adept" class="pill-btn">Adept</button>
-                <button type="button" data-value="Ninja" class="pill-btn">Ninja</button>
-                <button type="button" data-value="Sensei" class="pill-btn">Sensei</button>
+              <label>Build Your Opponent</label>
+              
+              <div style="margin-top:12px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:var(--muted);">Strength Level</div>
+                <div id="strength-pills" style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" data-value="weak" class="pill-btn">Weak</button>
+                  <button type="button" data-value="moderate" class="pill-btn pill-selected">Moderate</button>
+                  <button type="button" data-value="strong" class="pill-btn">Strong</button>
+                </div>
+              </div>
+              
+              <div style="margin-top:16px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:var(--muted);">Playing Style</div>
+                <div id="style-pills" style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" data-value="reckless" class="pill-btn">Reckless</button>
+                  <button type="button" data-value="cautious" class="pill-btn pill-selected">Cautious</button>
+                  <button type="button" data-value="aggressive" class="pill-btn">Aggressive</button>
+                  <button type="button" data-value="perfect" class="pill-btn">Perfect</button>
+                </div>
+              </div>
+              
+              <div style="margin-top:12px; padding:8px; background:var(--card-accent); border-radius:6px; font-size:12px; color:var(--muted);">
+                <div id="bot-description">Moderate strength, plays cautiously and safely</div>
               </div>
             </div>
             <div style="margin-top:20px;">
@@ -84,12 +103,31 @@
 
           <div id="in-game-panel" class="panel" style="display:none">
             <h3>Game in Progress</h3>
-            <div id="players-display" style="margin-bottom:15px; font-weight:600; color:#ccc;"></div>
             
-            <div id="move-history-container" style="background:rgba(0,0,0,0.2); border:1px solid #444; border-radius:4px; margin-bottom:15px;">
-              <div id="move-list" style="height:120px; overflow-y:auto; padding:8px; font-family:monospace; font-size:0.95em; color:#ddd; display:flex; flex-wrap:wrap; align-content:flex-start; gap:4px;">
-                <div style="width:100%; text-align:center; color:#777; font-style:italic;">Moves will appear here...</div>
+            <!-- Traditional Chess Scoresheet Design -->
+            <div id="scoresheet-container" style="background:rgba(0,0,0,0.3); border:1px solid #444; border-radius:6px; margin-bottom:15px; overflow:hidden;">
+              <!-- Player names header -->
+              <div id="scoresheet-players" style="display:flex; justify-content:space-between; padding:8px 12px; background:rgba(0,0,0,0.4); border-bottom:1px solid #444;">
+                <div id="white-player-name" style="color:#f0f0f0; font-weight:600; font-size:0.9em;">White: Player</div>
+                <div id="black-player-name" style="color:#bbb; font-weight:600; font-size:0.9em;">Black: Bot</div>
               </div>
+              
+              <!-- Moves table header -->
+              <div style="display:grid; grid-template-columns: 40px 1fr 1fr; padding:6px 8px; background:rgba(255,255,255,0.05); border-bottom:1px solid #444; font-size:0.85em; font-weight:600; color:#888;">
+                <div style="text-align:center;">#</div>
+                <div style="padding-left:8px;">White</div>
+                <div style="padding-left:8px;">Black</div>
+              </div>
+              
+              <!-- Moves list -->
+              <div id="scoresheet-moves" style="height:140px; overflow-y:auto; padding:4px 8px; font-family:monospace; font-size:0.9em;">
+                <div style="padding:20px; text-align:center; color:#666; font-style:italic;">Moves will appear here...</div>
+              </div>
+              
+              <!-- Game result (shown at end) -->
+              <div id="scoresheet-result" style="display:none; padding:8px 12px; background:rgba(0,150,0,0.2); border-top:1px solid #444; text-align:center; font-weight:600; color:#4CAF50;"></div>
+              
+              <!-- Navigation buttons -->
               <div style="display:flex; width:100%; box-sizing:border-box; border-top:1px solid #444;">
                 <button id="nav-start" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&lt;&lt;</button>
                 <button id="nav-prev" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&lt;</button>
@@ -98,8 +136,14 @@
               </div>
             </div>
             
+            <!-- Persistent game control buttons (always accessible) -->
+            <div style="display:flex; gap:8px; margin-bottom:10px;">
+              <button id="new-game-btn-game" class="ctrl secondary" style="flex:1;">New Game</button>
+              <button id="download-pgn-btn-ingame" class="ctrl secondary" style="flex:1; display:none;">Download PGN</button>
+            </div>
+            
             <div style="display:flex; gap:10px;">
-              <button id="hint-btn" class="ctrl secondary" style="flex:1; display:none;">ðŸ’¡ Hint</button>
+              <button id="hint-btn" class="ctrl secondary" style="flex:1; display:none;">Hint</button>
               <button id="end-game-btn" class="ctrl danger" style="flex:1;">Resign</button>
             </div>
             <div id="hint-text" style="margin-top:10px; font-size:0.9em; color:#ffff80; min-height:1.2em;"></div>
@@ -142,16 +186,15 @@
     </div>
 
     <!-- Game Over Modal -->
+    <!-- Game Over Modal - simplified (buttons now always accessible in scoresheet area) -->
     <div id="game-over-modal" class="modal" aria-hidden="true">
       <div class="modal-content game-over-content">
-        <span class="close" id="game-over-close" role="button" aria-label="Close">&times;</span>
         <h2 id="game-over-title">Game Over</h2>
-        <p id="game-over-result" style="font-size:1.2em; font-weight:700; margin:16px 0;"></p>
-        <p id="game-over-reason" style="color:var(--muted); margin-bottom:20px;"></p>
+        <p id="game-over-result" style="font-size:1.3em; font-weight:700; margin:20px 0;"></p>
+        <p id="game-over-reason" style="color:var(--muted); margin-bottom:24px;"></p>
         
         <div class="button-group">
-          <button id="modal-download-pgn" class="submit-btn">Download PGN</button>
-          <button id="modal-new-game" class="cancel-btn">New Game</button>
+          <button id="game-over-close" class="submit-btn">OK</button>
         </div>
       </div>
     </div>
@@ -207,6 +250,7 @@
     </script>
     {% endif %}
     <script src="/static/main.js?v={{ main_js_version }}"></script>
+    <script src="/static/voice_overrides.js"></script>
     <!-- Feedback Button (floating bottom-right) -->
     <button id="feedbackBtn" class="feedback-button">💬 Feedback</button>
 
@@ -258,7 +302,7 @@
     const feedbackBtn = document.getElementById('feedbackBtn');
     const feedbackForm = document.getElementById('feedbackForm');
     const feedbackSuccess = document.getElementById('feedbackSuccess');
-    const feedbackCloseBtn = feedbackModal ? feedbackModal.querySelector('.close') : null;
+    const closeBtn = document.querySelector('.close');
 
     // Open modal
     if (feedbackBtn) {
@@ -268,8 +312,8 @@
     }
 
     // Close modal
-    if (feedbackCloseBtn) {
-      feedbackCloseBtn.onclick = function() {
+    if (closeBtn) {
+      closeBtn.onclick = function() {
         closeFeedbackModal();
       }
     }
@@ -281,11 +325,11 @@
     }
 
     // Close if clicking outside modal
-    window.addEventListener('click', function(event) {
+    window.onclick = function(event) {
       if (event.target === feedbackModal) {
         closeFeedbackModal();
       }
-    });
+    }
 
     // Handle form submission
     if (feedbackForm) {

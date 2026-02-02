@@ -1,14 +1,48 @@
 # CHANGELOG — Chess (2026-01-01)
-## 2026-01-30 — Linux case-sensitivity fixes and browser console cleanup
 
-- **Fixed sound file case mismatch**: Renamed `Check.ogg`, `Checkmate.ogg`, and `Select.ogg` to lowercase (`check.ogg`, `checkmate.ogg`, `select.ogg`) so paths in `main.js` resolve correctly on Linux's case-sensitive filesystem. Previously these would 404 on the production server.
-- **Fixed broken check/checkmate sound files**: `check.ogg` and `checkmate.ogg` were placeholder text files (not real audio), causing `MediaError` decode failures in the browser console. Removed the broken Audio references since check and checkmate audio feedback is already handled by the `ChessVoice` browser TTS system.
-- **Fixed feedback modal close button selector**: `document.querySelector('.close')` in `index.html` was selecting the game-over modal's close button instead of the feedback modal's. Scoped the selector to `feedbackModal.querySelector('.close')` so each modal's close button works independently.
-- **Fixed global click handler override**: Changed `window.onclick = function(...)` to `window.addEventListener('click', ...)` for the feedback modal's outside-click-to-close behavior, preventing it from clobbering other click handlers (e.g. chessboard.js).
+## 2026-02-01 — Sound system fixes (updated)
 
-Files changed: `static/main.js`, `templates/index.html`, `static/sounds/` (file renames)
+- **Fixed:** Sound system completely restored — corrected file paths in `static/main.js` to match actual folder structure (`/static/sounds/piece/move.mp3`, `/static/sounds/system/select.mp3`).
+- **Added:** Reset sound support with `playReset()` method and `/static/sounds/piece/reset.mp3` loading.
+- **Removed:** Redundant `audio_overrides.js` script tag and duplicate `main.js` includes from `templates/index.html` after fixing root cause.
+- **Cleaned:** Simplified sound loading by fixing paths directly rather than using override workarounds.
+
+Files changed: `static/main.js`, `templates/index.html`
+
+## 2026-01-21 — Feedback widget and server storage
+
+
+Files changed: `templates/index.html`, `static/style.css`, `server.py`, `app/api.py`, `.gitignore`
+
 
 ## 2026-01-20 — Code cleanup and production readiness
+## v2.0.1 — 2026-01-31
+
+- **Added:** Centralized configuration via a new single source of truth: `bot_config.json`.
+- **Added:** Consolidated bot lineup to three personas: Beginner, Intermediate, Advanced.
+
+- **Changed:** Reduced bot count from five (Grasshopper, Student, Adept, Ninja, Sensei) to three (Beginner, Intermediate, Advanced).
+- **Changed:** `app/engine_personas.py` now loads bot settings from JSON instead of hardcoded dicts.
+- **Changed:** `app/chess_core.py` updated `BOT_PRESETS` to reference the three new bot names.
+- **Changed:** `static/main.js` updated `BOT_PROFILES` to match the 3-bot system.
+- **Changed:** `templates/index.html` UI buttons updated to show only the three bot options.
+- **Changed:** Default bot changed from "Student" to "Intermediate".
+
+- **Fixed:** Resolved four fallback reference bugs in `static/main.js` that were causing null profile errors.
+- **Fixed:** Corrected HTML button mismatch where `data-value` and display text were inconsistent.
+
+**Technical details**
+- **New bots & ratings:** Beginner (450 Elo), Intermediate (1175 Elo), Advanced (1700 Elo).
+- **Config:** The JSON-based config system allows tuning bot settings without code changes.
+- **Compatibility:** Maintains backward compatibility with existing saved games.
+- **Deployment:** All changes tested and deployed to the v2 development environment.
+
+**Files**
+- **New:** `bot_config.json`
+- **Modified:** `app/engine_personas.py` — added config loader
+- **Modified:** `app/chess_core.py` — updated `BOT_PRESETS`
+- **Modified:** `static/main.js` — updated `BOT_PROFILES` and fallbacks fixed
+- **Modified:** `templates/index.html` — UI updated for 3 bots
 
 - **Fixed unreachable code in batch simulation**: The combined PGN file logic in `api_simulate_batch()` was placed after a `return` statement and never executed. Moved it before the return so batch simulations now properly generate combined PGN files.
 - **Removed duplicate code in api.py**: Deleted duplicate `opponent_preset` handling block and duplicate `if engine_persona` block in `api_engine_move()` that were processing the same data twice.
@@ -92,24 +126,12 @@ Files changed:
 
 ## 2026-01-15 — Shutdown prep and final fixes
 
-- Appended mobile/tablet responsive CSS to `static/style.css` to improve board sizing on phones.
-- Removed manual in-board "Download PGN" button and added client `autoSaveGameToServer()` helper that posts finished PGNs to `/api/save_pgn` and shows a small status confirmation.
-- Fixed front-end scope bug by promoting `uiState` to a global so drag handlers see the UI state and the board lock works properly until `Start` is hit.
-- Switched shared whiteboard persistence to store a Move List (space-separated UCI moves) instead of only FEN screenshots so PGNs reconstruct correctly from history.
-- Replaced `end_game()` with a robust version that syncs history before finalizing, normalizes input names/sides, and writes friendly PGN metadata (`Event`, `Site`, `Date`, `Round`, `Termination`).
-- Added `SHUTDOWN.txt` (see repo root) with suggested shutdown steps to gracefully stop the server and archive state.
 
 Files changed in this session: `static/style.css`, `static/main.js`, `app/chess_core.py`, `CHANGELOG.md`, `SHUTDOWN.txt`
 
 How to verify:
-- Restart the Flask server (use debug mode if you want the dev panel), play until a mate/draw/resign and confirm the RESULT panel shows the correct `engine_reply` and canonical PGN.
 
 ## 2026-01-10 — Persona core, Tools UI, and batch simulation
-
-- Implemented richer engine persona core: explicit `engine_persona` and `engine_skill`, MultiPV sampling, mercy rules, blunder budgets, and phase-aware softness for endgame tuning.
-- Added deterministic RNG support and per-run seeding to make persona simulations reproducible.
-- Tools UI (`/test_personas`) for persona tuning, import/export/reset of persona overrides, single and batch simulation runs, and download of combined PGN/CSV results.
-- Persona overrides persisted to `data/persona_overrides.json` with validation and atomic writes.
 - Batch simulation: autosaves per-game PGNs into `games/tests/`, writes a combined PGN and CSV summary, and includes `WhitePersona`, `BlackPersona`, `Seed`, `GameNumber`, `EngineTime`, and `Termination` PGN headers.
 - Added secure download endpoint for saved PGN/CSV files and headless CLI batch runner `tools/simulate_personas.py`.
 - Stopped adding additional PGN metadata beyond `EngineTime` and `Termination` per user request.

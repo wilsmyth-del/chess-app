@@ -1,0 +1,21 @@
+[Event "Casual Game"]
+[Site "Wil's Chess"]
+[Date "2026.02.01"]
+[Round "1"]
+[White "wilsmyth"]
+[Black "Engine"]
+[Result "0-1"]
+[Termination "resign"]
+
+1. d4 c5 2. e3 a6 3. Bb5 g6 4. Bxd7+ Kxd7 5. dxc5+ Ke8 6. c6 b5 7. c7 Qd6 8.
+cxb8=Q Rxb8 9. Qxd6 g5 10. Qc5 Bg4 11. Qc4 bxc4 12. e4 h5 13. Bxg5 h4 14. Bxh4
+Rxh4 15. g3 Rh7 16. h3 Rh6 17. hxg4 Rxh1 18. Nd2 Nf6 19. Nf1 Nxe4 20. Ne2 Rh6
+21. Nd4 Rd6 22. c3 Rh6 23. Nf5 Rh8 24. b3 cxb3 25. Rb1 Rd8 26. Rxb3 Rc8 27.
+Ng7+ Kd8 28. Ne6+ Kd7 29. Nc5+ Rxc5 30. Rb7+ Kc8 31. Rb3 Rh1 32. f3 Nd2 33.
+Kxd2 Ra5 34. Rb2 Rc5 35. Rb6 Kc7 36. Rxa6 Kd7 37. g5 Rc7 38. g6 Rh8 39. gxf7 e6
+40. f4 Rb7 41. g4 Rh7 42. f5 Rb5 43. fxe6+ Kd8 44. e7+ Kxe7 45. Ra7+ Kd8 46.
+Ra8+ Ke7 47. Ra7+ Ke6 48. Ra6+ Kd5 49. g5 Ke5 50. g6 Rh6 51. g7 Bxg7 52. f8=Q
+Rd5+ 53. Kc2 Bxf8 54. Ra8 Rh8 55. Ng3 Rc5 56. a4 Rc6 57. Kb3 Rch6 58. c4 Rh2
+59. a5 R2h7 60. Ka4 Be7 61. Kb5 Bd6 62. c5 Be7 63. c6 Rd8 64. Kb6 Rg7 65. a6
+Rh7 66. Kb7 Bb4+ 67. Kb6 Bc5+ 68. Kxc5 Rxa8 69. c7 Rg7 70. a7 Rg6 71. Ne2 Re8
+72. Nc3 Rc8 73. Nb5 Rf6 74. Nd6 Rxd6 75. a8=Q Rxa8 76. c8=Q Rxc8+ 0-1
