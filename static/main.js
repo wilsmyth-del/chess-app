@@ -529,28 +529,22 @@ function applyTheme(name) {
 }
 
 // Centralized engine parameter extraction.
-// Returns `{ engine_time, engine_skill, engine_persona }` with sensible fallbacks.
+// Returns strength name + style persona name. Backend assembles the full config.
 function getEngineParams() {
   try {
-    // Get strength and style from Build-A-Bot selectors
     const strength = document.getElementById('bot-strength')?.value || 'moderate';
     const style = document.getElementById('bot-style')?.value || 'cautious';
-    
-    // Compose bot configuration
     const config = composeBotConfig(strength, style);
-    
-    // The persona name sent to backend is the style profile name
-    // Backend will use this to determine move selection behavior
-    const personaName = config.persona;
-    
+
     return {
-      engine_persona: personaName,
-      engine_skill: config.skill,
+      engine_persona: config.persona,      // style name (e.g. "cautious")
+      engine_strength: strength,           // strength name (e.g. "weak")
+      engine_skill: config.skill,          // backward compat fallback
       engine_time: config.time
     };
   } catch (e) {
     console.warn('getEngineParams failed', e);
-    return { engine_persona: 'cautious', engine_skill: 5, engine_time: 0.5 };
+    return { engine_persona: 'cautious', engine_strength: 'moderate', engine_skill: 5, engine_time: 0.5 };
   }
 }
 

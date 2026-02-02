@@ -2,8 +2,11 @@ import os
 import json
 import random
 import math
+import logging
 import chess
 import chess.engine
+
+_log = logging.getLogger(__name__)
 
 # Known persona names (used for API validation)
 _OVERRIDES_FILENAME = 'persona_overrides.json'
@@ -78,9 +81,8 @@ def _load_modular_config(data):
         # This entry only defines the STYLE behavior (temperature, blunder, mercy, curve)
         personas[style_key] = {
             # Style module defines move selection behavior only.
-            # UCI strength (Elo, Skill Level, depth) is set by the frontend's
-            # engine_skill param — we intentionally omit 'uci' here so that
-            # configure_persona() does not overwrite the skill already applied.
+            # UCI strength (Elo, Skill Level, depth) comes from the strength
+            # profile via assemble_persona_config() — not defined here.
             'pick_temperature': style_data.get('pick_temperature', 1.0),
             'blunder_cap': style_data.get('blunder_cap', 500),
             'mercy': style_data.get('mercy'),
@@ -201,6 +203,33 @@ def _get_default_bot_config():
 
 # Load personas from config file on module import
 DEFAULT_PERSONAS = _load_bot_config()
+
+
+def _load_strength_profiles():
+    """Load strength_profiles from bot_config.json. Returns dict or empty."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'bot_config.json')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get('strength_profiles', {})
+    except Exception:
+        return {}
+
+
+# Cached strength profiles and reverse skill->name map
+STRENGTH_PROFILES = _load_strength_profiles()
+_SKILL_TO_STRENGTH = {}
+for _sname, _sprof in STRENGTH_PROFILES.items():
+    if not _sname.startswith('_'):
+        _sk = _sprof.get('engine_skill')
+        if _sk is not None:
+            _SKILL_TO_STRENGTH[int(_sk)] = _sname
+
+# Default strength used when nothing else resolves
+_DEFAULT_STRENGTH = {
+    'engine_elo': 1100, 'engine_skill': 5, 'depth': 8,
+    'engine_time': 0.35, 'multipv': 10
+}
 
 # Internal default engine time (seconds) used for persona-driven play when no explicit
 # UI control is provided. This is intentionally internal — the fast/deep selector was
@@ -523,6 +552,66 @@ def configure_persona(engine: chess.engine.SimpleEngine, persona: str):
     }
 
 
+def assemble_persona_config(style_name, strength_name=None, engine_skill=None):
+    """Single authority for assembling a complete engine config from strength + style.
+
+    Args:
+        style_name: Style profile key (e.g. "cautious") OR a legacy combined
+                    persona name (e.g. "beginner").
+        strength_name: Strength profile key (e.g. "weak", "moderate", "strong").
+        engine_skill: Integer skill level fallback if strength_name is absent.
+
+    Returns:
+        dict with ALL fields needed by pick_move_with_multipv — no Nones for
+        required fields.  Strength owns depth/elo/skill/multipv/uci.
+        Style owns pick_temperature/curve/blunder_cap/mercy/endgame deltas.
+    """
+    key = (style_name or '').lower()
+
+    # Legacy detection: if the persona already has depth + uci it is a fully
+    # assembled bot from the bots section of bot_config.json — return as-is.
+    legacy_cfg = get_persona_config(key)
+    if legacy_cfg and legacy_cfg.get('depth') is not None and legacy_cfg.get('uci'):
+        return legacy_cfg
+
+    # --- Modular path: merge strength + style ---
+
+    # Resolve strength profile
+    strength = None
+    if strength_name:
+        strength = STRENGTH_PROFILES.get(strength_name.lower())
+    if not strength and engine_skill is not None:
+        matched = _SKILL_TO_STRENGTH.get(int(engine_skill))
+        if matched:
+            strength = STRENGTH_PROFILES.get(matched)
+    if not strength:
+        strength = STRENGTH_PROFILES.get('moderate', _DEFAULT_STRENGTH)
+
+    # Resolve style (already loaded as a persona entry without depth/uci)
+    style = legacy_cfg or {}
+
+    return {
+        # STRENGTH-owned
+        'depth': strength.get('depth', 8),
+        'multipv': strength.get('multipv', 10),
+        'uci': {
+            'UCI_LimitStrength': True,
+            'UCI_Elo': strength.get('engine_elo', 1100),
+            'Skill Level': strength.get('engine_skill', 5),
+            'MultiPV': strength.get('multipv', 10),
+        },
+        'engine_time': strength.get('engine_time', 0.35),
+        # STYLE-owned
+        'pick_temperature': style.get('pick_temperature', 1.0),
+        'blunder_cap': style.get('blunder_cap', 500),
+        'mercy': style.get('mercy'),
+        'curve': style.get('curve', {'type': 'table', 'weights': [10] * 10}),
+        'endgame_depth_delta': style.get('endgame_depth_delta', -1),
+        'endgame_temp_delta': style.get('endgame_temp_delta', 0.3),
+        'pieces_threshold': style.get('pieces_threshold', 10),
+    }
+
+
 # Module RNG for reproducible sampling. Use `set_rng_seed(seed)` to control.
 _RNG = random.Random()
 
@@ -626,7 +715,8 @@ def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board
     Returns a `chess.Move`.
     """
     if depth is None:
-        depth = 12
+        _log.warning('pick_move_with_multipv called with depth=None; falling back to 8')
+        depth = 8
 
     # Phase-aware adjustments: if few pieces remain, make engine/persona softer
     try:

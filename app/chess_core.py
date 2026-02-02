@@ -4,45 +4,7 @@ import chess
 import chess.engine
 import chess.pgn
 import datetime
-from app.engine_personas import configure_persona, pick_move_with_multipv, set_rng_seed
-
-
-# Canonical bot presets used by the UI (5 opponents). Keys are normalized to
-# lowercase for lookup. Each preset may include an `engine_persona` to map to
-# the existing persona machinery (which already controls randomness/blunder
-# behavior), a numeric `engine_skill` for engines that support skill tuning,
-# and an `engine_time` value (seconds) used as the search limit when calling
-# the engine. The `display_name` is suitable for UI presentation.
-#
-# Note: keep presets deterministic except where the persona config intentionally
-# adds sampling/temperature. This table is internal and mirrors persona names
-# defined in `app/engine_personas.py`.
-BOT_PRESETS = {
-    'human': {
-        'display_name': 'Human',
-        'engine_persona': None,
-        'engine_skill': None,
-        'engine_time': 0.0,
-    },
-    'beginner': {
-        'display_name': 'Beginner',
-        'engine_persona': 'beginner',
-        'engine_skill': 1,
-        'engine_time': 0.25,
-    },
-    'intermediate': {
-        'display_name': 'Intermediate',
-        'engine_persona': 'intermediate',
-        'engine_skill': 5,
-        'engine_time': 0.35,
-    },
-    'advanced': {
-        'display_name': 'Advanced',
-        'engine_persona': 'advanced',
-        'engine_skill': 12,
-        'engine_time': 0.5,
-    },
-}
+from app.engine_personas import pick_move_with_multipv, set_rng_seed, assemble_persona_config
 
 
 def derive_end_state(board: chess.Board):
@@ -385,12 +347,14 @@ class ChessGame:
         except Exception:
             pass
 
-    def engine_move(self, limit=0.1, engine_skill=None, engine_persona=None, rng_seed=None):
+    def engine_move(self, limit=0.1, engine_skill=None, engine_persona=None,
+                    engine_strength=None, rng_seed=None):
         """Ask the engine for a move.
 
         limit: time in seconds for the search (float)
-        engine_skill: optional integer skill level (0-20) to configure the engine if supported
-        engine_persona: optional persona name string to apply persona-specific configuration
+        engine_skill: integer skill level fallback (0-20)
+        engine_persona: style persona name (e.g. "cautious")
+        engine_strength: strength profile name (e.g. "weak")
         """
         # Ensure we sync state from the shared whiteboard before deciding
         try:
@@ -407,45 +371,51 @@ class ChessGame:
             return None
 
         try:
-            # Apply numeric skill configuration if provided
-            if engine_skill is not None:
-                try:
-                    eng.configure({"Skill Level": int(engine_skill)})
-                except Exception:
-                    try:
-                        eng.configure({"UCI_LimitStrength": True, "UCI_Elo": 1200 + int(engine_skill) * 50})
-                    except Exception:
-                        pass
-
-            # If persona provided, configure engine via persona helper and use its search params
             if engine_persona:
                 try:
-                    # set RNG seed for deterministic/stochastic sampling
                     try:
                         set_rng_seed(rng_seed)
                     except Exception:
                         pass
-                    cfg = configure_persona(eng, engine_persona)
-                    # initialize blunder budget for this persona for the current game
+
+                    # Assemble a complete config from strength + style
+                    cfg = assemble_persona_config(
+                        engine_persona,
+                        strength_name=engine_strength,
+                        engine_skill=engine_skill,
+                    )
+
+                    # Apply UCI options from the assembled config
+                    uci_opts = cfg.get('uci') or {}
+                    if uci_opts:
+                        try:
+                            eng.configure(uci_opts)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            eng.configure({"MultiPV": cfg.get('multipv', 10)})
+                        except Exception:
+                            pass
+
+                    # Blunder budget
                     remaining = self._ensure_blunder_budget(engine_persona)
                     enforce_no_blunder = (remaining <= 0)
                     blunder_thr = cfg.get('mercy', {}).get('eval_gap_threshold', 150) if cfg.get('mercy') else 150
 
-                    # --- Human Time Management: play faster in opening
-                    effective_limit = float(limit)
+                    # Opening speed adjustment
+                    effective_limit = float(cfg.get('engine_time', limit))
                     try:
                         if getattr(self.board, 'fullmove_number', 0) and self.board.fullmove_number < 10:
                             effective_limit = effective_limit * 0.6
                     except Exception:
                         pass
 
-                    # Determine pick temperature and adjust for 'shark' and 'tilt' behaviors
-                    pick_temp = float(cfg.get('pick_temperature', 0.0)) if cfg else 0.0
+                    # Temperature with shark/tilt adjustments
+                    pick_temp = float(cfg.get('pick_temperature', 0.0))
                     try:
-                        # Shark instinct: if already winning significantly and persona is stochastic
                         if getattr(self, 'last_best_eval', 0) is not None and self.last_best_eval > 200 and pick_temp > 0.5:
                             pick_temp = max(0.0, pick_temp - 0.5)
-                        # Tilt factor: if losing badly, increase randomness/aggression
                         if getattr(self, 'last_best_eval', 0) is not None and self.last_best_eval < -300:
                             pick_temp = pick_temp + 0.5
                     except Exception:
@@ -454,7 +424,7 @@ class ChessGame:
                     mv_res = pick_move_with_multipv(
                         eng,
                         self.board,
-                        depth=cfg.get('depth'),
+                        depth=cfg['depth'],
                         temperature=pick_temp,
                         multipv=cfg.get('multipv', 10),
                         mercy=cfg.get('mercy'),
@@ -465,14 +435,12 @@ class ChessGame:
                     )
                     if mv_res:
                         mv, sel_cp, best_cp, is_blunder = mv_res
-                        # Update last_best_eval from engine best cp if available
                         try:
                             if best_cp is not None:
                                 self.last_best_eval = int(best_cp)
                         except Exception:
                             pass
                         if mv:
-                            # If this move is a blunder, decrement the remaining budget
                             if is_blunder:
                                 self._decrement_blunder(engine_persona)
                             self.board.push(mv)
@@ -481,6 +449,12 @@ class ChessGame:
                             except Exception:
                                 pass
                             return mv.uci()
+                except Exception:
+                    pass
+            elif engine_skill is not None:
+                # No persona — apply raw skill level for plain engine play
+                try:
+                    eng.configure({"Skill Level": int(engine_skill)})
                 except Exception:
                     pass
 

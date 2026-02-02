@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request, send_file
-from app.chess_core import ChessGame, BOT_PRESETS
+from app.chess_core import ChessGame
 from app.engine_personas import PERSONA_DEFAULT_ENGINE_TIME
 import os
 import datetime
@@ -69,31 +69,7 @@ def api_move():
             engine_time = float(data.get("engine_time", 0.1))
         except Exception:
             engine_time = 0.1
-        # Parse engine parameters: separate numeric skill and persona string
         engine_persona = data.get('engine_persona')
-        # If client selected an `opponent_preset`, map it to canonical engine params
-        # from `BOT_PRESETS`. Preserve explicit engine_persona/engine_skill if
-        # provided by the caller; otherwise use preset defaults.
-        opponent_preset = data.get('opponent_preset')
-        if opponent_preset:
-            try:
-                preset = BOT_PRESETS.get(opponent_preset.lower())
-                if preset:
-                    if engine_persona is None:
-                        engine_persona = preset.get('engine_persona')
-                    # only set engine_time/skill when not explicitly provided
-                    if 'engine_time' in preset and data.get('engine_time') is None:
-                        try:
-                            engine_time = float(preset.get('engine_time', engine_time))
-                        except Exception:
-                            pass
-                    if 'engine_skill' in preset and data.get('engine_skill') is None:
-                        try:
-                            engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
-                        except Exception:
-                            pass
-            except Exception:
-                pass
         # validate persona name if provided
         try:
             from app.engine_personas import is_persona_allowed
@@ -106,6 +82,7 @@ def api_move():
             engine_skill = int(engine_skill) if engine_skill is not None else None
         except Exception:
             engine_skill = None
+        engine_strength = data.get('engine_strength')
         # optional RNG seed for deterministic sampling
         engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
         if engine_rng_seed is not None:
@@ -113,13 +90,7 @@ def api_move():
                 engine_rng_seed = int(engine_rng_seed)
             except Exception:
                 pass
-        # If a persona is provided, use internal default engine time for persona-driven replies
-        if engine_persona:
-            try:
-                engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
-            except Exception:
-                pass
-        reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
+        reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
         # FIX: if engine returned None but made a move (engine pushed to board), recover it
         if reply is None:
             try:
@@ -209,26 +180,7 @@ def api_engine_move():
         engine_skill = None
 
     engine_persona = data.get('engine_persona')
-    # Map opponent preset to canonical engine params when provided
-    opponent_preset = data.get('opponent_preset')
-    if opponent_preset:
-        try:
-            preset = BOT_PRESETS.get(opponent_preset.lower())
-            if preset:
-                if engine_persona is None:
-                    engine_persona = preset.get('engine_persona')
-                if data.get('engine_time') is None and 'engine_time' in preset:
-                    try:
-                        engine_time = float(preset.get('engine_time', engine_time))
-                    except Exception:
-                        pass
-                if data.get('engine_skill') is None and 'engine_skill' in preset:
-                    try:
-                        engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+    engine_strength = data.get('engine_strength')
     try:
         from app.engine_personas import is_persona_allowed
         if engine_persona and not is_persona_allowed(engine_persona):
@@ -241,16 +193,7 @@ def api_engine_move():
             engine_rng_seed = int(engine_rng_seed)
         except Exception:
             pass
-    # If a persona is provided, use internal default engine time for persona-driven
-    # move selection. This avoids exposing the previous fast/deep UI which behaved
-    # inconsistently when personas used MultiPV sampling.
-    if engine_persona:
-        try:
-            engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
-        except Exception:
-            pass
-
-    reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
+    reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
     # FIX: if engine returned None but made a move, recover it from the board move stack
     if reply is None:
         try:
@@ -732,14 +675,4 @@ def api_download_pgn():
         return send_file(found, as_attachment=True, download_name=safe)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-@api_bp.route('/api/feedback', methods=['POST'])
-def api_feedback():
-    """Accept feedback submissions and append to a single feedback.txt file.
-
-    Expected JSON payload: {name: str, feedback: str, ts: ISOstring}
-    """
-    # Deprecated: feedback now handled by /submit-feedback in server.py
-    return jsonify({'ok': False, 'error': 'deprecated_endpoint'}), 404
 

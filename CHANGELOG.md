@@ -1,13 +1,54 @@
 # CHANGELOG — Chess (2026-01-01)
 
-## 2026-02-01 — Sound system fixes (updated)
+## 2026-02-01 — Bug fixes, production cleanup, and UI polish
+
+### Bug Fixes
+- **Fixed startup crash:** Removed duplicated file content in `engine_personas.py` that caused a SyntaxError on import.
+- **Fixed insufficient material detection:** Added early `check_game_over()` call after the player's move in `/api/move` and `/api/engine_move` so stalemate and insufficient material are detected immediately, not only after the engine replies.
+- **Fixed board state corruption on game end:** Removed `_load_state()` from `end_game()` which was reloading stale state from disk and corrupting the in-memory board.
+- **Fixed Download PGN button:** Added missing click handler for the board-bottom Download PGN button (`download-pgn-btn-game`).
+- **Fixed move scoresheet not resetting:** `startGame()` now resets `historyFens`, `historyMoves`, `historyIndex`, `gameOver`, `lastFinalPgn`, and re-renders the scoresheet.
+- **Fixed Export FEN:** Export FEN button was always rebuilding a new Chess instance from the visual board, losing castling rights, en passant, and side to move. Now uses `game.fen()` during normal play, only rebuilds in free-board mode.
+- **Fixed voice overrides not loading:** `ChessVoice` and `ChessSounds` were declared with `const` (not `var`), so they weren't on `window`. `voice_overrides.js` couldn't find them and silently exited. Added explicit `window.ChessVoice` and `window.ChessSounds` assignments.
+- **Fixed wrong stylesheet:** `index.html` referenced `/static/index.css` (old file) instead of `/static/style.css`.
+- **Fixed duplicate HTML ID:** Renamed duplicate `download-pgn-btn-game` to `download-pgn-btn-ingame` on the in-game panel button.
+- **Fixed stale persona names:** Updated `_allowed_blunders_for_persona()` from old names (grasshopper, student, etc.) to current names (reckless, cautious, aggressive, etc.).
+- **Fixed style personas overwriting engine skill:** Removed dummy `uci`/`depth` from style-only personas in `_load_modular_config()` so they don't overwrite the frontend's `engine_skill`.
+
+### Production Cleanup
+- **Set `V1_MODE = True`** to gate dev/test endpoints in production.
+- **Removed debug logging:** Removed all `engine_debug.log` writes from `/api/move` and `/api/engine_move`. Deleted stale `engine_debug.log` file.
+- **Removed unsafe endpoints:** `/api/open_pgn_notepad` (subprocess.Popen), `/api/engine_move_debug`, `/api/open_engine_debug`, `/api/sync_main_js`, `/test_personas`.
+- **Removed dev endpoints:** `/api/dev/presets` and `/api/dev/game_status`.
+- **Removed debug output:** `print()` and `traceback.print_exc()` from `engine_personas.py` and `api.py`.
+- **Cleaned unused imports:** Removed `traceback`, `current_app`, `render_template` from `api.py`.
+
+### UI Changes
+- **Reset button returns to default state:** Now stops the engine, clears all game state, resets board orientation to white, and returns to the SETUP screen.
+- **Reset sound:** Plays `reset.mp3` when the reset button is clicked.
+- **Resign button color:** Changed `--danger` CSS variable to deep red (`#8b1a1a` light / `#a02020` dark) so the Resign button stands out appropriately.
+- **Elo values updated:** Weak 450→350, Moderate 1175→1100, Strong stays at 1700.
+- **Removed Elo numbers from UI:** Strength pill buttons now show "Weak", "Moderate", "Strong" without parenthesised Elo ratings.
+
+### Files Changed
+- `app/api.py`, `app/engine_personas.py`, `app/chess_core.py`
+- `static/main.js`, `static/style.css`
+- `templates/index.html`
+- `bot_config.json`
+
+---
+
+## 2026-02-01 — Sound system fixes and voice overrides
 
 - **Fixed:** Sound system completely restored — corrected file paths in `static/main.js` to match actual folder structure (`/static/sounds/piece/move.mp3`, `/static/sounds/system/select.mp3`).
 - **Added:** Reset sound support with `playReset()` method and `/static/sounds/piece/reset.mp3` loading.
 - **Removed:** Redundant `audio_overrides.js` script tag and duplicate `main.js` includes from `templates/index.html` after fixing root cause.
 - **Cleaned:** Simplified sound loading by fixing paths directly rather than using override workarounds.
+- **Implemented:** Voice override system — created `static/voice_overrides.js` to replace browser TTS with prerecorded MP3 files from `/static/sounds/voices/default/`.
+- **Added:** MP3 voice mapping for all game events (welcome, check, checkmate, stalemate, resign) while preserving existing `ChessVoice` API calls.
+- **Disabled:** Browser `speechSynthesis` to prevent conflicts with new MP3 voice system.
 
-Files changed: `static/main.js`, `templates/index.html`
+Files changed: `static/main.js`, `templates/index.html`, `static/voice_overrides.js` (new)
 
 ## 2026-01-21 — Feedback widget and server storage
 
