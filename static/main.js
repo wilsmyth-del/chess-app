@@ -306,31 +306,35 @@ function attemptMove(from, to) {
 
 // STRENGTH configurations (calculation power)
 const STRENGTH_CONFIGS = {
-  'weak': {
-    skill: 1,
+  'casual': {
+    skill: 2,
     time: 0.25,
-    elo: 350,
-    label: 'Weak',
-    description: 'Beginner level calculation'
+    elo: 600,
+    hints: Infinity,
+    label: 'Casual',
+    description: 'Casual level calculation'
   },
   'moderate': {
-    skill: 5,
+    skill: 8,
     time: 0.35,
-    elo: 1100,
+    elo: 1200,
+    hints: 3,
     label: 'Moderate',
     description: 'Club player calculation'
   },
   'strong': {
-    skill: 12,
+    skill: 15,
     time: 0.5,
-    elo: 1700,
+    elo: 1800,
+    hints: 1,
     label: 'Strong',
     description: 'Advanced calculation'
   },
   'expert': {
-    skill: 18,
+    skill: 20,
     time: 1.0,
     elo: 2200,
+    hints: 0,
     label: 'Expert',
     description: 'Expert level calculation'
   }
@@ -340,25 +344,21 @@ const STRENGTH_CONFIGS = {
 const STYLE_CONFIGS = {
   'reckless': {
     persona: 'reckless',
-    hints: Infinity,
     label: 'Reckless',
     description: 'Makes big mistakes, hangs pieces, chaotic'
   },
   'cautious': {
     persona: 'cautious',
-    hints: 2,
     label: 'Cautious',
     description: 'Plays safe and solid'
   },
   'aggressive': {
     persona: 'aggressive',
-    hints: 1,
     label: 'Aggressive',
     description: 'Seeks attacks and tactics'
   },
   'perfect': {
     persona: 'perfect',
-    hints: 0,
     label: 'Perfect',
     description: 'Always finds the best move'
   }
@@ -366,19 +366,22 @@ const STYLE_CONFIGS = {
 
 /**
  * Compose a bot from strength + style
- * @param {string} strength - Strength key (weak, moderate, strong)
+ * @param {string} strength - Strength key (casual, moderate, strong)
  * @param {string} style - Style key (reckless, cautious, aggressive, perfect)
  * @returns {Object} Combined bot configuration
  */
 function composeBotConfig(strength, style) {
   const strengthCfg = STRENGTH_CONFIGS[strength] || STRENGTH_CONFIGS['moderate'];
   const styleCfg = STYLE_CONFIGS[style] || STYLE_CONFIGS['cautious'];
-  
+
+  // Hints come from strength, but Perfect style forces 0
+  const hints = (style === 'perfect') ? 0 : strengthCfg.hints;
+
   return {
     skill: strengthCfg.skill,
     time: strengthCfg.time,
     elo: strengthCfg.elo,
-    hints: styleCfg.hints,
+    hints: hints,
     persona: styleCfg.persona,
     description: `${strengthCfg.description}, ${styleCfg.description}`,
     strengthLabel: strengthCfg.label,
@@ -401,7 +404,7 @@ function getBotDescription(strength, style) {
 
 // Backwards compatibility - map old bot names to strength+style combos
 const BOT_PROFILES = {
-  'Beginner': composeBotConfig('weak', 'reckless'),
+  'Beginner': composeBotConfig('casual', 'reckless'),
   'Intermediate': composeBotConfig('moderate', 'cautious'),
   'Advanced': composeBotConfig('strong', 'perfect')
 };
@@ -548,7 +551,7 @@ function getEngineParams() {
 
     return {
       engine_persona: config.persona,      // style name (e.g. "cautious")
-      engine_strength: strength,           // strength name (e.g. "weak")
+      engine_strength: strength,           // strength name (e.g. "casual")
       engine_skill: config.skill,          // backward compat fallback
       engine_time: config.time
     };
@@ -1959,7 +1962,7 @@ window.addEventListener('load', async () => {
               btn.classList.add('pill-hidden');
             }
           } else {
-            // Weak/Moderate/Strong: disabled when Perfect is selected
+            // Casual/Moderate/Strong: disabled when Perfect is selected
             if (isPerfect) {
               btn.classList.add('pill-disabled');
             } else {

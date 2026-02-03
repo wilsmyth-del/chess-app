@@ -69,24 +69,16 @@ def _load_modular_config(data):
     
     personas = {}
     
-    # CRITICAL: Expose style_profiles directly as personas
-    # This allows Build-A-Bot to send style names like "reckless", "cautious"
-    # Frontend sets strength via engine_skill, backend uses style for move selection
+    # Expose style_profiles directly as personas for Build-A-Bot.
+    # Style only defines personality (temperature, blunder_cap, curve, endgame_temp).
+    # Mercy and endgame_depth_delta are ability concerns — they live in strength.
     for style_key, style_data in style_profiles.items():
         if style_key.startswith('_'):
             continue
-            
-        # Create a persona entry for this style
-        # Note: Strength (UCI Elo, skill, depth) comes from frontend via engine_skill param
-        # This entry only defines the STYLE behavior (temperature, blunder, mercy, curve)
+
         personas[style_key] = {
-            # Style module defines move selection behavior only.
-            # UCI strength (Elo, Skill Level, depth) comes from the strength
-            # profile via assemble_persona_config() — not defined here.
             'pick_temperature': style_data.get('pick_temperature', 1.0),
             'blunder_cap': style_data.get('blunder_cap', 500),
-            'mercy': style_data.get('mercy'),
-            'endgame_depth_delta': style_data.get('endgame_depth_delta', -1),
             'endgame_temp_delta': style_data.get('endgame_temp_delta', 0.3),
             'pieces_threshold': style_data.get('pieces_threshold', 10),
             'curve': style_data.get('curve', {'type': 'table', 'weights': [10] * 10}),
@@ -112,7 +104,7 @@ def _load_modular_config(data):
         
         # Merge strength + style into a complete persona
         personas[bot_key] = {
-            # From STRENGTH module
+            # From STRENGTH module (ability/vision)
             'uci': {
                 'UCI_LimitStrength': True,
                 'UCI_Elo': strength.get('engine_elo', 1000),
@@ -121,12 +113,12 @@ def _load_modular_config(data):
             },
             'depth': strength.get('depth', 8),
             'multipv': strength.get('multipv', 10),
-            
-            # From STYLE module
+            'mercy': strength.get('mercy'),
+            'endgame_depth_delta': strength.get('endgame_depth_delta', -1),
+
+            # From STYLE module (personality/choice)
             'pick_temperature': style.get('pick_temperature', 1.0),
             'blunder_cap': style.get('blunder_cap', 500),
-            'mercy': style.get('mercy'),
-            'endgame_depth_delta': style.get('endgame_depth_delta', -1),
             'endgame_temp_delta': style.get('endgame_temp_delta', 0.3),
             'pieces_threshold': style.get('pieces_threshold', 10),
             'curve': style.get('curve', {'type': 'table', 'weights': [10] * 10})
@@ -164,40 +156,40 @@ def _get_default_bot_config():
     """Fallback configuration if bot_config.json is missing"""
     return {
         'beginner': {
-            'blunder_cap': 750,
-            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 450, 'Skill Level': 1, 'MultiPV': 10},
-            'depth': 4,
-            'pick_temperature': 2.5,
+            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 600, 'Skill Level': 2, 'MultiPV': 10},
+            'depth': 5,
             'multipv': 10,
-            'mercy': {'mate_in': 4, 'mate_keep_prob': 0.03, 'eval_gap_threshold': 300, 'eval_keep_prob': 0.15},
-            'endgame_depth_delta': -2,
-            'endgame_temp_delta': 0.3,
+            'mercy': {'mate_in': 4, 'mate_keep_prob': 0.10, 'eval_gap_threshold': 250, 'eval_keep_prob': 0.20},
+            'endgame_depth_delta': -4,
+            'pick_temperature': 2.0,
+            'blunder_cap': 600,
+            'endgame_temp_delta': 0.5,
             'pieces_threshold': 10,
-            'curve': {'type': 'table', 'weights': [1, 2, 6, 10, 14, 14, 10, 6, 4, 3]},
+            'curve': {'type': 'table', 'weights': [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]},
         },
         'intermediate': {
-            'blunder_cap': 350,
-            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1175, 'Skill Level': 5, 'MultiPV': 10},
-            'depth': 8,
-            'pick_temperature': 1.2,
+            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1200, 'Skill Level': 8, 'MultiPV': 10},
+            'depth': 10,
             'multipv': 10,
-            'mercy': {'mate_in': 2, 'mate_keep_prob': 0.55, 'eval_gap_threshold': 525, 'eval_keep_prob': 0.60},
-            'endgame_depth_delta': -1,
-            'endgame_temp_delta': 0.3,
+            'mercy': {'mate_in': 3, 'mate_keep_prob': 0.40, 'eval_gap_threshold': 400, 'eval_keep_prob': 0.50},
+            'endgame_depth_delta': -2,
+            'pick_temperature': 0.8,
+            'blunder_cap': 250,
+            'endgame_temp_delta': 0.1,
             'pieces_threshold': 10,
-            'curve': {'type': 'table', 'weights': [16, 14, 10, 6, 4, 2, 1, 1, 1, 1]},
+            'curve': {'type': 'table', 'weights': [25, 18, 10, 5, 2, 1, 1, 1, 1, 1]},
         },
         'advanced': {
-            'blunder_cap': 50,
-            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1700, 'Skill Level': 12, 'MultiPV': 10},
-            'depth': 14,
-            'pick_temperature': 0.0,
+            'uci': {'UCI_LimitStrength': True, 'UCI_Elo': 1800, 'Skill Level': 15, 'MultiPV': 10},
+            'depth': 16,
             'multipv': 10,
-            'mercy': None,
-            'endgame_depth_delta': -1,
+            'mercy': {'mate_in': 2, 'mate_keep_prob': 0.85, 'eval_gap_threshold': 600, 'eval_keep_prob': 0.90},
+            'endgame_depth_delta': 0,
+            'pick_temperature': 0.0,
+            'blunder_cap': 10,
             'endgame_temp_delta': 0.0,
             'pieces_threshold': 10,
-            'curve': {'type': 'table', 'weights': [64, 16, 4, 1, 1, 1, 1, 1, 1, 1]},
+            'curve': {'type': 'table', 'weights': [100, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
         },
     }
 
@@ -227,8 +219,10 @@ for _sname, _sprof in STRENGTH_PROFILES.items():
 
 # Default strength used when nothing else resolves
 _DEFAULT_STRENGTH = {
-    'engine_elo': 1100, 'engine_skill': 5, 'depth': 8,
-    'engine_time': 0.35, 'multipv': 10
+    'engine_elo': 1200, 'engine_skill': 8, 'depth': 10,
+    'engine_time': 0.35, 'multipv': 10,
+    'endgame_depth_delta': -2,
+    'mercy': {'mate_in': 3, 'mate_keep_prob': 0.40, 'eval_gap_threshold': 400, 'eval_keep_prob': 0.50}
 }
 
 # Internal default engine time (seconds) used for persona-driven play when no explicit
@@ -558,13 +552,13 @@ def assemble_persona_config(style_name, strength_name=None, engine_skill=None):
     Args:
         style_name: Style profile key (e.g. "cautious") OR a legacy combined
                     persona name (e.g. "beginner").
-        strength_name: Strength profile key (e.g. "weak", "moderate", "strong").
+        strength_name: Strength profile key (e.g. "casual", "moderate", "strong").
         engine_skill: Integer skill level fallback if strength_name is absent.
 
     Returns:
         dict with ALL fields needed by pick_move_with_multipv — no Nones for
-        required fields.  Strength owns depth/elo/skill/multipv/uci.
-        Style owns pick_temperature/curve/blunder_cap/mercy/endgame deltas.
+        required fields.  Strength owns depth/elo/skill/multipv/uci/mercy/endgame_depth.
+        Style owns pick_temperature/curve/blunder_cap/endgame_temp.
     """
     key = (style_name or '').lower()
 
@@ -579,7 +573,11 @@ def assemble_persona_config(style_name, strength_name=None, engine_skill=None):
     # Resolve strength profile
     strength = None
     if strength_name:
-        strength = STRENGTH_PROFILES.get(strength_name.lower())
+        sn = strength_name.lower()
+        # Accept legacy 'weak' as alias for 'casual'
+        if sn == 'weak':
+            sn = 'casual'
+        strength = STRENGTH_PROFILES.get(sn)
     if not strength and engine_skill is not None:
         matched = _SKILL_TO_STRENGTH.get(int(engine_skill))
         if matched:
@@ -591,22 +589,22 @@ def assemble_persona_config(style_name, strength_name=None, engine_skill=None):
     style = legacy_cfg or {}
 
     return {
-        # STRENGTH-owned
-        'depth': strength.get('depth', 8),
+        # STRENGTH-owned (ability/vision)
+        'depth': strength.get('depth', 10),
         'multipv': strength.get('multipv', 10),
         'uci': {
             'UCI_LimitStrength': True,
-            'UCI_Elo': strength.get('engine_elo', 1100),
-            'Skill Level': strength.get('engine_skill', 5),
+            'UCI_Elo': strength.get('engine_elo', 1200),
+            'Skill Level': strength.get('engine_skill', 8),
             'MultiPV': strength.get('multipv', 10),
         },
         'engine_time': strength.get('engine_time', 0.35),
-        # STYLE-owned
+        'mercy': strength.get('mercy'),
+        'endgame_depth_delta': strength.get('endgame_depth_delta', -2),
+        # STYLE-owned (personality/choice)
         'pick_temperature': style.get('pick_temperature', 1.0),
         'blunder_cap': style.get('blunder_cap', 500),
-        'mercy': style.get('mercy'),
         'curve': style.get('curve', {'type': 'table', 'weights': [10] * 10}),
-        'endgame_depth_delta': style.get('endgame_depth_delta', -1),
         'endgame_temp_delta': style.get('endgame_temp_delta', 0.3),
         'pieces_threshold': style.get('pieces_threshold', 10),
     }

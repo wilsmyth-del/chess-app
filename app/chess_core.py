@@ -353,7 +353,7 @@ class ChessGame:
         limit: time in seconds for the search (float)
         engine_skill: integer skill level fallback (0-20)
         engine_persona: style persona name (e.g. "cautious")
-        engine_strength: strength profile name (e.g. "weak")
+        engine_strength: strength profile name (e.g. "casual")
         """
         # Ensure we sync state from the shared whiteboard before deciding
         try:

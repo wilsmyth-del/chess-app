@@ -1,173 +1,161 @@
 {
-  "_comment": "Modular bot configuration system - separates STRENGTH (calculation power) from STYLE (move selection behavior)",
-  
-  "config_version": "2.0",
+  "_comment": "Modular bot configuration - STRENGTH defines ability/vision, STYLE defines personality/choice",
+
+  "config_version": "2.1",
   "default_bot": "intermediate",
-  
+
   "strength_profiles": {
-    "_comment": "How STRONG the engine calculates (Elo, skill, depth, time)",
-    
-    "weak": {
-      "display_name": "Weak",
-      "engine_elo": 350,
-      "engine_skill": 1,
-      "depth": 4,
+    "_comment": "What the bot SEES and how CAPABLE it is (calculation + mercy + endgame vision)",
+
+    "casual": {
+      "display_name": "Casual",
+      "engine_elo": 600,
+      "engine_skill": 2,
+      "depth": 5,
       "engine_time": 0.25,
-      "multipv": 10
+      "multipv": 10,
+      "endgame_depth_delta": -4,
+      "mercy": {
+        "mate_in": 4,
+        "mate_keep_prob": 0.10,
+        "eval_gap_threshold": 250,
+        "eval_keep_prob": 0.20
+      }
     },
     "moderate": {
-      "display_name": "Moderate", 
-      "engine_elo": 1100,
-      "engine_skill": 5,
-      "depth": 8,
+      "display_name": "Moderate",
+      "engine_elo": 1200,
+      "engine_skill": 8,
+      "depth": 10,
       "engine_time": 0.35,
-      "multipv": 10
+      "multipv": 10,
+      "endgame_depth_delta": -2,
+      "mercy": {
+        "mate_in": 3,
+        "mate_keep_prob": 0.40,
+        "eval_gap_threshold": 400,
+        "eval_keep_prob": 0.50
+      }
     },
     "strong": {
       "display_name": "Strong",
-      "engine_elo": 1700,
-      "engine_skill": 12,
-      "depth": 14,
+      "engine_elo": 1800,
+      "engine_skill": 15,
+      "depth": 16,
       "engine_time": 0.5,
-      "multipv": 10
+      "multipv": 10,
+      "endgame_depth_delta": 0,
+      "mercy": {
+        "mate_in": 2,
+        "mate_keep_prob": 0.85,
+        "eval_gap_threshold": 600,
+        "eval_keep_prob": 0.90
+      }
     },
     "expert": {
       "display_name": "Expert",
       "engine_elo": 2200,
-      "engine_skill": 18,
-      "depth": 18,
+      "engine_skill": 20,
+      "depth": 22,
       "engine_time": 1.0,
-      "multipv": 10
+      "multipv": 10,
+      "endgame_depth_delta": 0,
+      "mercy": null
     }
   },
-  
+
   "style_profiles": {
-    "_comment": "How the bot PICKS moves from calculated options (personality/behavior)",
-    
+    "_comment": "How the bot PICKS moves from what it sees (personality/behavior only)",
+
     "reckless": {
       "display_name": "Reckless",
-      "description": "Makes impulsive, risky moves - hangs pieces",
-      "pick_temperature": 2.5,
-      "blunder_cap": 750,
-      "mercy": {
-        "mate_in": 4,
-        "mate_keep_prob": 0.03,
-        "eval_gap_threshold": 300,
-        "eval_keep_prob": 0.15
-      },
-      "endgame_depth_delta": -2,
-      "endgame_temp_delta": 0.3,
-      "pieces_threshold": 10,
-      "curve": {
-        "type": "table",
-        "weights": [1, 2, 6, 10, 14, 14, 10, 6, 4, 3]
-      }
-    },
-    
-    "cautious": {
-      "display_name": "Cautious",
-      "description": "Plays safe, avoids risky tactics",
-      "pick_temperature": 1.2,
-      "blunder_cap": 350,
-      "mercy": {
-        "mate_in": 2,
-        "mate_keep_prob": 0.55,
-        "eval_gap_threshold": 525,
-        "eval_keep_prob": 0.60
-      },
-      "endgame_depth_delta": -1,
-      "endgame_temp_delta": 0.3,
-      "pieces_threshold": 10,
-      "curve": {
-        "type": "table",
-        "weights": [16, 14, 10, 6, 4, 2, 1, 1, 1, 1]
-      }
-    },
-    
-    "aggressive": {
-      "display_name": "Aggressive",
-      "description": "Seeks attacks and tactical complications",
-      "pick_temperature": 1.5,
-      "blunder_cap": 500,
-      "mercy": {
-        "mate_in": 3,
-        "mate_keep_prob": 0.25,
-        "eval_gap_threshold": 400,
-        "eval_keep_prob": 0.40
-      },
-      "endgame_depth_delta": -1,
+      "description": "Plays wild, unpredictable moves",
+      "pick_temperature": 2.0,
+      "blunder_cap": 600,
       "endgame_temp_delta": 0.5,
       "pieces_threshold": 10,
       "curve": {
         "type": "table",
-        "weights": [12, 12, 10, 8, 6, 4, 3, 2, 1, 1]
+        "weights": [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
       }
     },
-    
+
+    "aggressive": {
+      "display_name": "Aggressive",
+      "description": "Seeks attacks and tactical complications",
+      "pick_temperature": 1.5,
+      "blunder_cap": 450,
+      "endgame_temp_delta": 0.4,
+      "pieces_threshold": 10,
+      "curve": {
+        "type": "table",
+        "weights": [15, 12, 10, 8, 6, 4, 3, 2, 1, 1]
+      }
+    },
+
+    "cautious": {
+      "display_name": "Cautious",
+      "description": "Plays safe, avoids risky tactics",
+      "pick_temperature": 0.8,
+      "blunder_cap": 250,
+      "endgame_temp_delta": 0.1,
+      "pieces_threshold": 10,
+      "curve": {
+        "type": "table",
+        "weights": [25, 18, 10, 5, 2, 1, 1, 1, 1, 1]
+      }
+    },
+
     "perfect": {
       "display_name": "Perfect",
       "description": "Always finds the best move",
       "pick_temperature": 0.0,
-      "blunder_cap": 50,
-      "mercy": null,
-      "endgame_depth_delta": -1,
+      "blunder_cap": 10,
       "endgame_temp_delta": 0.0,
       "pieces_threshold": 10,
       "curve": {
         "type": "table",
-        "weights": [64, 16, 4, 1, 1, 1, 1, 1, 1, 1]
+        "weights": [100, 0, 0, 0, 0, 0, 0, 0, 0, 0]
       }
     }
   },
-  
+
   "bots": {
     "_comment": "Pre-configured bots that combine a STRENGTH + STYLE",
-    
+
     "beginner": {
       "display_name": "Beginner",
       "description": "Learning the basics - makes obvious mistakes",
-      "strength": "weak",
-      "style": "reckless",
-      "ui_hints": "unlimited"
+      "strength": "casual",
+      "style": "reckless"
     },
-    
+
     "intermediate": {
       "display_name": "Intermediate",
       "description": "Solid player - sees most tactics",
       "strength": "moderate",
-      "style": "cautious",
-      "ui_hints": 2
+      "style": "cautious"
     },
-    
+
     "advanced": {
-      "display_name": "Advanced", 
+      "display_name": "Advanced",
       "description": "Strong player - finds good moves consistently",
       "strength": "strong",
-      "style": "perfect",
-      "ui_hints": 0
+      "style": "perfect"
     },
-    
+
     "aggressive_intermediate": {
       "display_name": "Aggressive",
       "description": "Moderate strength, seeks tactical complications",
       "strength": "moderate",
-      "style": "aggressive",
-      "ui_hints": 1
+      "style": "aggressive"
     },
-    
+
     "wildcard": {
       "display_name": "Wildcard",
       "description": "Strong calculation but chaotic decisions",
       "strength": "strong",
-      "style": "reckless",
-      "ui_hints": 1
+      "style": "reckless"
     }
-  },
-  
-  "notes": {
-    "strength": "Controls how deeply and accurately the engine calculates positions",
-    "style": "Controls how the bot picks from the calculated moves (personality)",
-    "mixing": "You can create any combination: weak+perfect, strong+reckless, etc.",
-    "future": "UI can let users customize: 'Play [moderate strength] with [aggressive style]'"
   }
 }
