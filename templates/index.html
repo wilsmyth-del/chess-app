@@ -55,6 +55,10 @@
           <div id="setup-panel" class="panel">
             <h3>New Game</h3>
 
+            <div style="margin-bottom:14px; padding:8px 10px; background:var(--card-accent); border-radius:6px; font-size:12px; color:var(--muted); line-height:1.5;">
+              Enter your name (or play as Guest), pick a playing style and strength level, then hit Start Game. After the game you can download the PGN.
+            </div>
+
             <div class="form-group">
               <label>Player Name</label>
               <input type="text" id="player-name" placeholder="Guest" />
@@ -71,17 +75,8 @@
             <input type="hidden" id="bot-style" value="cautious" />
             <div class="form-group">
               <label>Build Your Opponent</label>
-              
+
               <div style="margin-top:12px;">
-                <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:var(--muted);">Strength Level</div>
-                <div id="strength-pills" style="display:flex; gap:8px; flex-wrap:wrap;">
-                  <button type="button" data-value="weak" class="pill-btn">Weak</button>
-                  <button type="button" data-value="moderate" class="pill-btn pill-selected">Moderate</button>
-                  <button type="button" data-value="strong" class="pill-btn">Strong</button>
-                </div>
-              </div>
-              
-              <div style="margin-top:16px;">
                 <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:var(--muted);">Playing Style</div>
                 <div id="style-pills" style="display:flex; gap:8px; flex-wrap:wrap;">
                   <button type="button" data-value="reckless" class="pill-btn">Reckless</button>
@@ -90,9 +85,19 @@
                   <button type="button" data-value="perfect" class="pill-btn">Perfect</button>
                 </div>
               </div>
-              
+
+              <div style="margin-top:16px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:var(--muted);">Strength Level</div>
+                <div id="strength-pills" style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" data-value="weak" class="pill-btn">Weak</button>
+                  <button type="button" data-value="moderate" class="pill-btn pill-selected">Moderate</button>
+                  <button type="button" data-value="strong" class="pill-btn">Strong</button>
+                  <button type="button" data-value="expert" class="pill-btn pill-hidden">Expert</button>
+                </div>
+              </div>
+
               <div style="margin-top:12px; padding:8px; background:var(--card-accent); border-radius:6px; font-size:12px; color:var(--muted);">
-                <div id="bot-description">Moderate strength, plays cautiously and safely</div>
+                <div id="bot-description">Plays safe and solid, club player calculation</div>
               </div>
             </div>
             <div style="margin-top:20px;">

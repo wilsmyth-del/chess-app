@@ -1,5 +1,16 @@
 # CHANGELOG — Chess (2026-01-01)
 
+## 2026-02-03 — Voice system expansion
+
+- **Added:** New ElevenLabs Rachel voice files for premium audio experience
+  - `static/sounds/voices/rachel/ElevenLabs_2026-01-30T19_39_39_Rachel_pre_sp100_s50_sb75_se0_b_m2.mp3`
+  - `static/sounds/voices/rachel/ElevenLabs_2026-01-30T19_39_53_Rachel_pre_sp100_s50_sb75_se0_b_m2.mp3` 
+  - `static/sounds/voices/rachel/ElevenLabs_2026-01-30T19_40_39_Rachel_pre_sp100_s50_sb75_se0_b_m2.mp3`
+- **Expanded:** Voice system now supports multiple voice profiles with folder-based organization
+- **Enhanced:** Voice override system ready for dynamic voice selection (Rachel vs default)
+
+Files changed: New voice files in `static/sounds/voices/rachel/`
+
 ## 2026-02-01 — Bug fixes, production cleanup, and UI polish
 
 ### Bug Fixes

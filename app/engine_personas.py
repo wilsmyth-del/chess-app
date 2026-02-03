@@ -631,10 +631,6 @@ def set_rng_seed(seed):
         _RNG = random.Random(seed)
 
 
-def get_rng():
-    return _RNG
-
-
 def normalize_weights(ws):
     """Normalize an iterable of weights to sum to 1. Returns a list of floats.
 
@@ -855,11 +851,9 @@ def pick_move_with_multipv(engine: chess.engine.SimpleEngine, board: chess.Board
     # find selected cp and best cp
     best_cp = candidates[0][1]
     sel_cp = None
-    sel_idx = None
-    for i, (m, cp, _) in enumerate(candidates):
+    for m, cp, _ in candidates:
         if m == selected:
             sel_cp = cp
-            sel_idx = i
             break
 
     # --- BLUNDER GUARD ---

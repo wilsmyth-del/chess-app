@@ -86,7 +86,6 @@ class ChessGame:
         if os.environ.get("STOCKFISH_PATH"):
             self.engine_path = os.environ.get("STOCKFISH_PATH")
 
-        self._engine = None
         # Last best evaluation (centipawns) seen from engine analyses — used to detect
         # when the bot is in a winning/losing trend (for 'shark' behavior triggers).
         self.last_best_eval = 0
@@ -549,13 +548,3 @@ class ChessGame:
 
         return result
 
-    def close_engine(self):
-        try:
-            if self._engine:
-                self._engine.quit()
-                self._engine = None
-        except Exception:
-            pass
-
-    def __del__(self):
-        self.close_engine()

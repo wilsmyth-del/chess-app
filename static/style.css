@@ -20,6 +20,13 @@
 	--danger: #a02020; /* deep red for resign (dark theme) */
 }
 
+/* Remove default focus outlines from all buttons */
+button, .ctrl, .pill-btn { outline: none; }
+
+/* Pill button states */
+.pill-disabled { opacity: 0.35; pointer-events: none; cursor: default; }
+.pill-hidden { display: none; }
+
 /* Ensure dragged chess piece stays visible during drag */
 .piece-417db {
 	z-index: 10000 !important;

@@ -326,6 +326,13 @@ const STRENGTH_CONFIGS = {
     elo: 1700,
     label: 'Strong',
     description: 'Advanced calculation'
+  },
+  'expert': {
+    skill: 18,
+    time: 1.0,
+    elo: 2200,
+    label: 'Expert',
+    description: 'Expert level calculation'
   }
 };
 
@@ -383,9 +390,12 @@ function composeBotConfig(strength, style) {
  * Get human-readable description of bot combination
  */
 function getBotDescription(strength, style) {
+  if (style === 'perfect') {
+    return 'Perfect — always plays the best move at Expert level';
+  }
   const strengthCfg = STRENGTH_CONFIGS[strength] || STRENGTH_CONFIGS['moderate'];
   const styleCfg = STYLE_CONFIGS[style] || STYLE_CONFIGS['cautious'];
-  
+
   return `${strengthCfg.label} strength, ${styleCfg.description}`;
 }
 
@@ -1928,20 +1938,78 @@ window.addEventListener('load', async () => {
         if (descEl) descEl.textContent = desc;
       } catch (e) { console.error('Failed to update bot description:', e); }
     }
-    
-    setupPillSelector('strength-pills', 'bot-strength', 'moderate', (v) => { 
-      try { 
+
+    function applyPerfectLock() {
+      try {
+        const styleVal = document.getElementById('bot-style')?.value || 'cautious';
+        const strengthInput = document.getElementById('bot-strength');
+        const strengthContainer = document.getElementById('strength-pills');
+        if (!strengthInput || !strengthContainer) return;
+        const pills = Array.from(strengthContainer.querySelectorAll('[data-value]'));
+        const isPerfect = (styleVal === 'perfect');
+
+        pills.forEach(btn => {
+          const v = btn.getAttribute('data-value');
+          if (v === 'expert') {
+            // Expert: visible only when Perfect is selected
+            if (isPerfect) {
+              btn.classList.remove('pill-hidden');
+              btn.classList.remove('pill-disabled');
+            } else {
+              btn.classList.add('pill-hidden');
+            }
+          } else {
+            // Weak/Moderate/Strong: disabled when Perfect is selected
+            if (isPerfect) {
+              btn.classList.add('pill-disabled');
+            } else {
+              btn.classList.remove('pill-disabled');
+            }
+          }
+        });
+
+        if (isPerfect) {
+          // Force Expert strength
+          strengthInput.value = 'expert';
+          localStorage.setItem('bot-strength', 'expert');
+          // Update visual selection
+          pills.forEach(btn => {
+            if (btn.getAttribute('data-value') === 'expert') {
+              btn.style.background = '#222'; btn.style.color = '#fff';
+            } else {
+              btn.style.background = 'transparent'; btn.style.color = '#ccc';
+            }
+          });
+        } else if (strengthInput.value === 'expert') {
+          // Switching away from Perfect — fall back to Moderate
+          strengthInput.value = 'moderate';
+          localStorage.setItem('bot-strength', 'moderate');
+          pills.forEach(btn => {
+            if (btn.getAttribute('data-value') === 'moderate') {
+              btn.style.background = '#222'; btn.style.color = '#fff';
+            } else {
+              btn.style.background = 'transparent'; btn.style.color = '#ccc';
+            }
+          });
+        }
+      } catch (e) { console.error('applyPerfectLock failed:', e); }
+    }
+
+    setupPillSelector('strength-pills', 'bot-strength', 'moderate', (v) => {
+      try {
         updateBotDescription();
-      } catch (e) { console.error('Operation failed:', e); } 
+      } catch (e) { console.error('Operation failed:', e); }
     });
-    
-    setupPillSelector('style-pills', 'bot-style', 'cautious', (v) => { 
-      try { 
+
+    setupPillSelector('style-pills', 'bot-style', 'cautious', (v) => {
+      try {
+        applyPerfectLock();
         updateBotDescription();
-      } catch (e) { console.error('Operation failed:', e); } 
+      } catch (e) { console.error('Operation failed:', e); }
     });
-    
-    // Initialize description on load
+
+    // Initialize lock + description on load
+    applyPerfectLock();
     updateBotDescription();
   } catch (e) { /* ignore pill wiring errors */ }
 
@@ -2314,27 +2382,16 @@ window.addEventListener('load', async () => {
           if (fen) {
             const fenEl = document.getElementById('fen');
             if (fenEl) fenEl.textContent = fen;
-            // try clipboard API first
-            try {
-              if (navigator.clipboard && navigator.clipboard.writeText) {
-                await navigator.clipboard.writeText(fen);
-                setStatus('FEN exported  - copied to clipboard');
-              } else {
-                // fallback to textarea copy
-                const ta = document.createElement('textarea');
-                ta.value = fen;
-                document.body.appendChild(ta);
-                ta.select();
-                const ok = document.execCommand('copy');
-                document.body.removeChild(ta);
-                setStatus(ok ? 'FEN exported  - copied to clipboard' : 'FEN exported (copy failed)');
-              }
-            } catch (e) {
-              console.warn('clipboard copy failed', e);
-              setStatus('FEN exported (copy failed)');
+            const copied = await copyFenToClipboard(fen);
+            if (copied) {
+              setStatus('FEN copied to clipboard');
+            } else {
+              // Clipboard failed — show a prompt so the user can copy manually
+              window.prompt('Copy this FEN:', fen);
+              setStatus('FEN exported');
             }
           } else {
-            setStatus('Export failed');
+            setStatus('No position to export');
           }
         } catch (e) { console.warn('export fen failed', e); setStatus('Export failed'); }
       });
