@@ -14,6 +14,11 @@ game = ChessGame()
 # Feature gate for v1: when True, hide Free Board / Study features and related endpoints
 V1_MODE = True
 
+# --- Security caps ---
+MAX_ENGINE_TIME = 5.0       # max seconds per engine think
+MAX_SIM_MOVES = 400         # max moves per simulation game
+MAX_BATCH_COUNT = 20        # max games in a batch simulation
+
 from functools import wraps
 
 def v1_guard(f):
@@ -66,7 +71,7 @@ def api_move():
     if data.get("engine_reply"):
         # read optional engine params
         try:
-            engine_time = float(data.get("engine_time", 0.1))
+            engine_time = min(float(data.get("engine_time", 0.1)), MAX_ENGINE_TIME)
         except Exception:
             engine_time = 0.1
         engine_persona = data.get('engine_persona')
@@ -133,8 +138,8 @@ def api_set_fen():
         # Validate and set the board to provided FEN
         game.board = chess.Board(fen)
         return jsonify({"ok": True, "fen": game.get_fen()})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid FEN"}), 400
 
 
 @api_bp.route("/api/analyze", methods=["POST"])
@@ -145,7 +150,7 @@ def api_analyze():
         return jsonify({'ok': False, 'error': 'missing_fen'}), 400
     try:
         try:
-            time_limit = float(data.get('time_limit', 0.5))
+            time_limit = min(float(data.get('time_limit', 0.5)), MAX_ENGINE_TIME)
         except Exception:
             time_limit = 0.5
         # Call the ChessGame analyze helper
@@ -158,8 +163,8 @@ def api_analyze():
         else:
             out['result'] = res
         return jsonify(out)
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'analysis failed'}), 500
 
 @api_bp.route("/api/engine_move", methods=["POST"])
 def api_engine_move():
@@ -170,7 +175,7 @@ def api_engine_move():
         return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": None, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')})
     data = request.get_json() or {}
     try:
-        engine_time = float(data.get("engine_time", 0.1))
+        engine_time = min(float(data.get("engine_time", 0.1)), MAX_ENGINE_TIME)
     except Exception:
         engine_time = 0.1
     try:
@@ -238,8 +243,8 @@ def api_resign():
         # Do not reset here; caller may inspect final board before reset
         resp = {"ok": True, "resign": True, "resigned_side": resigned, "winner": winner, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')}
         return jsonify(resp)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        return jsonify({"ok": False, "error": "resign failed"}), 500
 
 
 def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_name='Opponent', pgn_text=None):
@@ -305,8 +310,8 @@ def api_save_pgn():
     try:
         fname = save_pgn_to_file(result=result, user_side=user_side, user_name=user_name, opponent_name=opponent_name, pgn_text=pgn_text)
         return jsonify({"ok": True, "pgn_file": fname})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        return jsonify({"ok": False, "error": "save failed"}), 500
 
 
 @api_bp.route('/api/simulate', methods=['POST'])
@@ -321,7 +326,7 @@ def api_simulate():
     except Exception:
         engine_time = 0.1
     try:
-        max_moves = int(data.get('max_moves', 200))
+        max_moves = min(int(data.get('max_moves', 200)), MAX_SIM_MOVES)
     except Exception:
         max_moves = 200
     rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
@@ -340,8 +345,8 @@ def api_simulate():
     try:
         from app.chess_core import ChessGame
         sim = ChessGame()
-    except Exception as e:
-        return jsonify({'ok': False, 'error': f'failed_to_create_game: {e}'}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
     move_list = []
     reason = 'max_moves_reached'
@@ -417,8 +422,8 @@ def api_personas_list():
         for p in list_personas():
             data[p] = get_persona_config(p)
         return jsonify({'ok': True, 'personas': data})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/persona/<name>', methods=['GET', 'POST'])
@@ -441,8 +446,8 @@ def api_persona(name):
             if not ok:
                 return jsonify({'ok': False, 'error': 'failed_to_set'}), 400
             return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/persona/<name>/reset', methods=['POST'])
@@ -454,8 +459,8 @@ def api_persona_reset(name):
         if not ok:
             return jsonify({'ok': False, 'error': 'unknown_persona'}), 400
         return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/personas/reset_all', methods=['POST'])
@@ -467,8 +472,8 @@ def api_personas_reset_all():
         if not ok:
             return jsonify({'ok': False, 'error': 'failed_to_reset'}), 500
         return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/personas/export', methods=['GET'])
@@ -478,8 +483,8 @@ def api_personas_export():
         from app.engine_personas import export_persona_overrides
         data = export_persona_overrides()
         return jsonify({'ok': True, 'overrides': data})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/personas/import', methods=['POST'])
@@ -503,8 +508,8 @@ def api_personas_import():
         if not ok:
             return jsonify({'ok': False, 'error': 'save_failed'}), 500
         return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/engine_info', methods=['GET'])
@@ -516,8 +521,8 @@ def api_engine_info():
         engine_ok = bool(cg.engine_path)
         data = {'engine_path': cg.engine_path or None, 'engine_detected': engine_ok, 'default_engine_time': 0.05, 'multipv_cap': 16}
         return jsonify({'ok': True, 'engine': data})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/simulate_batch', methods=['POST'])
@@ -532,11 +537,11 @@ def api_simulate_batch():
     except Exception:
         engine_time = 0.05
     try:
-        count = int(data.get('count', 1))
+        count = min(int(data.get('count', 1)), MAX_BATCH_COUNT)
     except Exception:
         count = 1
     try:
-        max_moves = int(data.get('max_moves', 400))
+        max_moves = min(int(data.get('max_moves', 400)), MAX_SIM_MOVES)
     except Exception:
         max_moves = 400
     seed = data.get('seed') if 'seed' in data else None
@@ -563,8 +568,8 @@ def api_simulate_batch():
         try:
             from app.chess_core import ChessGame
             sim = ChessGame()
-        except Exception as e:
-            return jsonify({'ok': False, 'error': f'failed_to_create_game: {e}'}), 500
+        except Exception:
+            return jsonify({'ok': False, 'error': 'server error'}), 500
 
         reason = 'max_moves_reached'
         seed_used = None
@@ -673,6 +678,6 @@ def api_download_pgn():
         return jsonify({'ok': False, 'error': 'file_not_found'}), 404
     try:
         return send_file(found, as_attachment=True, download_name=safe)
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'download failed'}), 500
 

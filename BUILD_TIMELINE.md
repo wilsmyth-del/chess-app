@@ -213,20 +213,52 @@ ElevenLabs Rachel voice files were added for a premium audio experience,
 with folder-based voice profile organization ready for dynamic voice
 selection.
 
+### Feb 3 — Casual Rename & Hint Tiers (v2.2)
+The "Weak" strength profile was renamed to **Casual** — a friendlier name
+that describes the experience rather than judging the player. Updated
+across every file: config, backend, frontend, UI, and documentation. A
+backend alias ensures any saved "weak" references still resolve correctly.
+
+Hint budgets were moved from Style to Strength, following the same logic as
+the mercy refactor — hints are an ability concern, not a personality trait.
+Harder opponents give you fewer lifelines:
+
+| Strength | Hints |
+|----------|-------|
+| Casual   | Unlimited |
+| Moderate | 3 |
+| Strong   | 1 |
+| Expert   | 0 |
+
+Perfect style forces 0 hints regardless, since the bot is already playing
+the engine's top choice — if you're choosing that fight, you're on your
+own.
+
+### Feb 3 — Live Deployment
+The application was deployed to production. From idea to live in just
+under a month.
+
 ---
 
-## Current State (Feb 3, 2026)
+## Current State (Feb 3, 2026) — Live
 
-The application is a fully functional chess platform with:
+The application is a fully functional chess platform, live and playable.
+
+What started as a bare Flask scaffold with a chessboard on January 5th
+grew into a complete chess experience in 30 days:
 
 - **Flask + python-chess** backend with Stockfish engine integration
 - **chessboard.js + chess.js** interactive frontend
-- **Modular bot system** (v2.1) with independent Strength and Style axes
+- **Modular bot system** (v2.2) with independent Strength and Style axes
+- **4 strength levels** (Casual, Moderate, Strong, Expert) and **4 playing
+  styles** (Reckless, Cautious, Aggressive, Perfect)
 - **5 pre-configured bots** from Beginner to Wildcard
+- **Strength-based hint system** — more help against easier opponents
 - **Free-board editor** with FEN import/export
 - **Study mode** with engine-powered hints and arrow overlays
-- **Move history** with keyboard navigation
-- **Sound effects** and **voice announcements** (browser TTS + MP3 overrides)
+- **Move history** with keyboard navigation and scoresheet
+- **Sound effects** and **voice announcements** (browser TTS + ElevenLabs
+  MP3 overrides)
 - **Dark/light theme** with OS preference detection
 - **Auto-save PGN** on game completion with download support
 - **Material advantage** scoring and captured-piece display
@@ -237,5 +269,9 @@ The application is a fully functional chess platform with:
 **Tech stack:** Python (Flask, python-chess), JavaScript (chessboard.js,
 chess.js), Stockfish UCI engine, HTML/CSS, ElevenLabs voice files.
 
-**Config:** `bot_config.json` v2.1 — single source of truth for all bot
+**Config:** `bot_config.json` v2.2 — single source of truth for all bot
 parameters.
+
+---
+
+*Built from scratch in 30 days. January 5 – February 3, 2026.*

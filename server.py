@@ -17,8 +17,13 @@ def create_app():
         """Handle feedback submissions and save to file."""
         try:
             data = request.get_json() or {}
-            name = data.get('name', 'Anonymous')
+            name = (data.get('name') or 'Anonymous')[:100]
             feedback = data.get('feedback', '')
+
+            if not feedback or not feedback.strip():
+                return jsonify({'status': 'error', 'message': 'Feedback cannot be empty'}), 400
+            if len(feedback) > 5000:
+                return jsonify({'status': 'error', 'message': 'Feedback too long (max 5000 characters)'}), 400
 
             # Create feedback directory if it doesn't exist
             feedback_dir = Path(__file__).parent / 'feedback'
@@ -38,7 +43,7 @@ def create_app():
             return jsonify({'status': 'success'}), 200
         except Exception as e:
             app.logger.exception('Error saving feedback')
-            return jsonify({'status': 'error', 'message': str(e)}), 500
+            return jsonify({'status': 'error', 'message': 'server error'}), 500
 
     @app.get("/")
     def home():

@@ -1,4 +1,26 @@
-# CHANGELOG — Chess (2026-01-01)
+# CHANGELOG — Chess
+
+## 2026-02-03 — v2.2: Casual rename, hint tiers, and final polish
+
+### Naming & UX
+- **Renamed:** "Weak" strength profile renamed to **Casual** across the entire codebase — config, backend, frontend, UI pills, and documentation. Legacy `"weak"` key accepted as alias in the backend for backwards compatibility.
+- **Moved hints to Strength:** Hint budgets are now a Strength concern (ability), not Style. Casual gets unlimited hints, Moderate gets 3, Strong gets 1, Expert gets 0. Perfect style forces 0 hints regardless of strength.
+- **UI pill updated:** Strength selector shows "Casual" instead of "Weak".
+
+### Code Cleanup
+- **Removed duplicate folders:** Cleaned up accidental "- Copy" folders (including hidden `.venv - Copy`, `.claude - Copy`, `.pytest_cache - Copy`, `.vscode - Copy`).
+- **Dead code sweep:** Removed orphan files, unused functions, stale references.
+
+### Documentation
+- **Added:** `BUILD_TIMELINE.md` — full chronological story of the project from first commit to live deployment.
+- **Updated:** `bot_settings_reference.txt` — v2.2 with Casual naming and hint tiers in strength table.
+
+### Files Changed
+- `bot_config.json`, `app/engine_personas.py`, `app/chess_core.py`
+- `static/main.js`, `templates/index.html`
+- `bot_settings_reference.txt`, `BUILD_TIMELINE.md`
+
+---
 
 ## 2026-02-03 — Voice system expansion
 

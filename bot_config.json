@@ -1,7 +1,7 @@
 {
   "_comment": "Modular bot configuration - STRENGTH defines ability/vision, STYLE defines personality/choice",
 
-  "config_version": "2.1",
+  "config_version": "2.2",
   "default_bot": "intermediate",
 
   "strength_profiles": {
