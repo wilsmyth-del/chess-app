@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Config Editor</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+
+.topbar { background: #16213e; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #0f3460; }
+.topbar h1 { font-size: 1.3rem; color: #e94560; }
+.topbar button { background: #0f3460; color: #e0e0e0; border: 1px solid #533483; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+.topbar button:hover { background: #533483; }
+
+.main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto; }
+.main > section > h2 { font-size: 1.1rem; margin-bottom: 12px; color: #e94560; }
+
+.card { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+.card-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; user-select: none; background: #1a1a3e; }
+.card-header h3 { font-size: 0.95rem; }
+.card-header .toggle { font-size: 0.8rem; color: #888; }
+.card-body { padding: 14px; display: none; }
+.card.open .card-body { display: block; }
+.card.open .toggle::after { content: '▲'; }
+.card:not(.open) .toggle::after { content: '▼'; }
+
+.field-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.field-row label { width: 170px; font-size: 0.82rem; color: #aaa; flex-shrink: 0; }
+.field-row input[type="number"] { width: 90px; background: #0a0a1a; border: 1px solid #333; color: #e0e0e0; padding: 4px 6px; border-radius: 3px; font-size: 0.85rem; }
+.field-row input.changed { border-color: #e94560; background: #1a0a1a; }
+
+.mercy-section { margin-top: 8px; padding: 8px; background: #0f0f2a; border-radius: 4px; }
+.mercy-section h4 { font-size: 0.8rem; color: #888; margin-bottom: 6px; cursor: pointer; user-select: none; }
+
+.curve-section { margin-top: 8px; }
+.curve-section h4 { font-size: 0.8rem; color: #888; margin-bottom: 6px; }
+.curve-inputs { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
+.curve-inputs input { width: 48px; background: #0a0a1a; border: 1px solid #333; color: #e0e0e0; padding: 3px 4px; border-radius: 3px; font-size: 0.8rem; text-align: center; }
+.curve-inputs input.changed { border-color: #e94560; background: #1a0a1a; }
+.curve-chart { display: flex; align-items: flex-end; gap: 3px; height: 50px; margin-top: 6px; }
+.curve-bar { background: #533483; min-width: 14px; border-radius: 2px 2px 0 0; transition: height 0.2s; }
+
+.card-actions { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #0f3460; }
+.btn { padding: 5px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
+.btn-save { background: #0f3460; color: #e0e0e0; }
+.btn-save:hover { background: #1a5276; }
+.btn-undo { background: #533483; color: #e0e0e0; }
+.btn-undo:hover { background: #6c3fa0; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+
+.bots-section { grid-column: 1 / -1; margin-top: 10px; }
+.bots-section h2 { font-size: 1.1rem; margin-bottom: 10px; color: #e94560; }
+.bots-table { width: 100%; border-collapse: collapse; background: #16213e; border-radius: 6px; overflow: hidden; }
+.bots-table th, .bots-table td { padding: 8px 12px; text-align: left; font-size: 0.85rem; border-bottom: 1px solid #0f3460; }
+.bots-table th { background: #1a1a3e; color: #aaa; font-weight: 600; }
+
+.toast-container { position: fixed; top: 16px; right: 16px; z-index: 1000; display: flex; flex-direction: column; gap: 6px; }
+.toast { padding: 8px 16px; border-radius: 4px; font-size: 0.85rem; animation: fadeIn 0.2s; }
+.toast-ok { background: #0f3460; color: #7bed9f; border: 1px solid #2ed573; }
+.toast-err { background: #3d0000; color: #ff6b6b; border: 1px solid #e94560; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Bot Config Editor</h1>
+  <button onclick="loadConfig()">Reload from Disk</button>
+</div>
+
+<div class="main" id="main">
+  <section id="strength-col"><h2>Strength Profiles</h2></section>
+  <section id="style-col"><h2>Style Profiles</h2></section>
+  <section class="bots-section" id="bots-section"><h2>Bots Reference</h2></section>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+let CONFIG = {};
+let UNDO_COUNTS = {}; // "section/profile" -> count
+let ORIGINAL = {};    // "section/profile/field" -> original value at load time
+
+function toast(msg, ok) {
+  const c = document.getElementById('toasts');
+  const d = document.createElement('div');
+  d.className = 'toast ' + (ok ? 'toast-ok' : 'toast-err');
+  d.textContent = msg;
+  c.appendChild(d);
+  setTimeout(() => d.remove(), 3000);
+}
+
+async function api(url, opts) {
+  try {
+    const r = await fetch(url, opts);
+    return await r.json();
+  } catch(e) {
+    return {ok: false, error: e.message};
+  }
+}
+
+function fieldKey(section, profile, field) { return section + '/' + profile + '/' + field; }
+function undoKey(section, profile) { return section + '/' + profile; }
+
+async function loadConfig() {
+  const res = await api('/api/editor/config');
+  if (!res.ok) { toast('Failed to load config: ' + (res.error || ''), false); return; }
+  CONFIG = res.config;
+  ORIGINAL = {};
+  // Store original values
+  for (const section of ['strength_profiles', 'style_profiles']) {
+    const profiles = CONFIG[section] || {};
+    for (const [pname, pdata] of Object.entries(profiles)) {
+      if (pname.startsWith('_')) continue;
+      for (const [k, v] of Object.entries(pdata)) {
+        if (k.startsWith('_') || k === 'display_name' || k === 'description') continue;
+        if (typeof v === 'object' && v !== null && k !== 'curve') {
+          for (const [sk, sv] of Object.entries(v)) {
+            ORIGINAL[fieldKey(section, pname, k + '.' + sk)] = sv;
+          }
+        } else if (k === 'curve' && v && v.weights) {
+          v.weights.forEach((w, i) => { ORIGINAL[fieldKey(section, pname, 'curve.weights.' + i)] = w; });
+        } else {
+          ORIGINAL[fieldKey(section, pname, k)] = v;
+        }
+      }
+    }
+  }
+  // Load undo counts
+  await loadAllUndoCounts();
+  render();
+}
+
+async function loadAllUndoCounts() {
+  UNDO_COUNTS = {};
+  for (const section of ['strength_profiles', 'style_profiles']) {
+    const profiles = CONFIG[section] || {};
+    for (const pname of Object.keys(profiles)) {
+      if (pname.startsWith('_')) continue;
+      const res = await api('/api/editor/history/' + section + '/' + pname);
+      if (res.ok) UNDO_COUNTS[undoKey(section, pname)] = (res.history || []).length;
+    }
+  }
+}
+
+function render() {
+  renderStrength();
+  renderStyle();
+  renderBots();
+}
+
+function makeNumberInput(section, profile, field, value, step) {
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.value = value != null ? value : '';
+  if (step) inp.step = step;
+  inp.dataset.section = section;
+  inp.dataset.profile = profile;
+  inp.dataset.field = field;
+  inp.dataset.orig = value != null ? String(value) : '';
+  inp.addEventListener('input', function() {
+    if (this.value !== this.dataset.orig) this.classList.add('changed');
+    else this.classList.remove('changed');
+  });
+  return inp;
+}
+
+function makeFieldRow(label, inputEl) {
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  const lbl = document.createElement('label');
+  lbl.textContent = label;
+  row.appendChild(lbl);
+  row.appendChild(inputEl);
+  return row;
+}
+
+function renderStrength() {
+  const col = document.getElementById('strength-col');
+  col.innerHTML = '<h2>Strength Profiles</h2>';
+  const profiles = CONFIG.strength_profiles || {};
+  for (const [pname, pdata] of Object.entries(profiles)) {
+    if (pname.startsWith('_')) continue;
+    const card = document.createElement('div');
+    card.className = 'card open';
+    const section = 'strength_profiles';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'card-header';
+    header.innerHTML = '<h3>' + (pdata.display_name || pname) + '</h3><span class="toggle"></span>';
+    header.addEventListener('click', () => card.classList.toggle('open'));
+    card.appendChild(header);
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'card-body';
+    body.id = 'body-' + section + '-' + pname;
+
+    const fields = [
+      ['engine_elo', 'Engine Elo', 50],
+      ['engine_skill', 'Engine Skill', 1],
+      ['depth', 'Depth', 1],
+      ['engine_time', 'Engine Time (s)', 0.05],
+      ['endgame_depth_delta', 'Endgame Depth Delta', 1]
+    ];
+    for (const [f, label, step] of fields) {
+      body.appendChild(makeFieldRow(label, makeNumberInput(section, pname, f, pdata[f], step)));
+    }
+
+    // Mercy sub-section
+    const mercy = pdata.mercy;
+    const mercyDiv = document.createElement('div');
+    mercyDiv.className = 'mercy-section';
+    const mh = document.createElement('h4');
+    mh.textContent = 'Mercy Settings' + (mercy === null ? ' (disabled)' : '');
+    mercyDiv.appendChild(mh);
+    if (mercy && typeof mercy === 'object') {
+      const mfields = [
+        ['mate_in', 'Mate In', 1],
+        ['mate_keep_prob', 'Mate Keep Prob', 0.05],
+        ['eval_gap_threshold', 'Eval Gap Threshold', 10],
+        ['eval_keep_prob', 'Eval Keep Prob', 0.05]
+      ];
+      for (const [f, label, step] of mfields) {
+        mercyDiv.appendChild(makeFieldRow(label, makeNumberInput(section, pname, 'mercy.' + f, mercy[f], step)));
+      }
+    }
+    body.appendChild(mercyDiv);
+    card.appendChild(body);
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-save';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', () => saveCard(section, pname));
+    const uc = UNDO_COUNTS[undoKey(section, pname)] || 0;
+    const undoBtn = document.createElement('button');
+    undoBtn.className = 'btn btn-undo';
+    undoBtn.textContent = 'Undo (' + uc + ')';
+    undoBtn.disabled = uc === 0;
+    undoBtn.addEventListener('click', () => undoCard(section, pname));
+    actions.appendChild(saveBtn);
+    actions.appendChild(undoBtn);
+    card.appendChild(actions);
+
+    col.appendChild(card);
+  }
+}
+
+function renderStyle() {
+  const col = document.getElementById('style-col');
+  col.innerHTML = '<h2>Style Profiles</h2>';
+  const profiles = CONFIG.style_profiles || {};
+  for (const [pname, pdata] of Object.entries(profiles)) {
+    if (pname.startsWith('_')) continue;
+    const card = document.createElement('div');
+    card.className = 'card open';
+    const section = 'style_profiles';
+
+    const header = document.createElement('div');
+    header.className = 'card-header';
+    header.innerHTML = '<h3>' + (pdata.display_name || pname) + '</h3><span class="toggle"></span>';
+    header.addEventListener('click', () => card.classList.toggle('open'));
+    card.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'card-body';
+    body.id = 'body-' + section + '-' + pname;
+
+    const fields = [
+      ['pick_temperature', 'Pick Temperature', 0.1],
+      ['blunder_cap', 'Blunder Cap', 10],
+      ['endgame_temp_delta', 'Endgame Temp Delta', 0.05],
+      ['pieces_threshold', 'Pieces Threshold', 1]
+    ];
+    for (const [f, label, step] of fields) {
+      body.appendChild(makeFieldRow(label, makeNumberInput(section, pname, f, pdata[f], step)));
+    }
+
+    // Curve section
+    const curve = pdata.curve;
+    if (curve && curve.weights) {
+      const curveDiv = document.createElement('div');
+      curveDiv.className = 'curve-section';
+      curveDiv.innerHTML = '<h4>Curve Weights (rank 1-10)</h4>';
+      const inputsDiv = document.createElement('div');
+      inputsDiv.className = 'curve-inputs';
+      const chartDiv = document.createElement('div');
+      chartDiv.className = 'curve-chart';
+      chartDiv.id = 'chart-' + pname;
+
+      curve.weights.forEach((w, i) => {
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.value = w;
+        inp.step = 1;
+        inp.min = 0;
+        inp.dataset.section = section;
+        inp.dataset.profile = pname;
+        inp.dataset.field = 'curve.weights.' + i;
+        inp.dataset.orig = String(w);
+        inp.addEventListener('input', function() {
+          if (this.value !== this.dataset.orig) this.classList.add('changed');
+          else this.classList.remove('changed');
+          updateChart(pname);
+        });
+        inputsDiv.appendChild(inp);
+      });
+      curveDiv.appendChild(inputsDiv);
+      curveDiv.appendChild(chartDiv);
+      body.appendChild(curveDiv);
+    }
+
+    card.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-save';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', () => saveCard(section, pname));
+    const uc = UNDO_COUNTS[undoKey(section, pname)] || 0;
+    const undoBtn = document.createElement('button');
+    undoBtn.className = 'btn btn-undo';
+    undoBtn.textContent = 'Undo (' + uc + ')';
+    undoBtn.disabled = uc === 0;
+    undoBtn.addEventListener('click', () => undoCard(section, pname));
+    actions.appendChild(saveBtn);
+    actions.appendChild(undoBtn);
+    card.appendChild(actions);
+
+    col.appendChild(card);
+  }
+  // Render charts after DOM is ready
+  setTimeout(() => {
+    for (const pname of Object.keys(profiles)) {
+      if (!pname.startsWith('_')) updateChart(pname);
+    }
+  }, 0);
+}
+
+function updateChart(profile) {
+  const chartDiv = document.getElementById('chart-' + profile);
+  if (!chartDiv) return;
+  const body = chartDiv.closest('.card-body');
+  if (!body) return;
+  const inputs = body.querySelectorAll('.curve-inputs input');
+  const vals = Array.from(inputs).map(inp => parseFloat(inp.value) || 0);
+  const max = Math.max(...vals, 1);
+  chartDiv.innerHTML = '';
+  vals.forEach(v => {
+    const bar = document.createElement('div');
+    bar.className = 'curve-bar';
+    bar.style.height = Math.max(2, (v / max) * 48) + 'px';
+    bar.title = String(v);
+    chartDiv.appendChild(bar);
+  });
+}
+
+function renderBots() {
+  const sec = document.getElementById('bots-section');
+  sec.innerHTML = '<h2>Bots Reference</h2>';
+  const bots = CONFIG.bots || {};
+  const table = document.createElement('table');
+  table.className = 'bots-table';
+  table.innerHTML = '<thead><tr><th>Bot</th><th>Display Name</th><th>Strength</th><th>Style</th><th>Description</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  for (const [bname, bdata] of Object.entries(bots)) {
+    if (bname.startsWith('_')) continue;
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + bname + '</td><td>' + (bdata.display_name || '') + '</td><td>' + (bdata.strength || '') + '</td><td>' + (bdata.style || '') + '</td><td>' + (bdata.description || '') + '</td>';
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  sec.appendChild(table);
+}
+
+async function saveCard(section, profile) {
+  const body = document.getElementById('body-' + section + '-' + profile);
+  if (!body) return;
+  const inputs = body.querySelectorAll('input[data-field]');
+  let saved = 0;
+  let errors = [];
+
+  // Collect curve weight changes to save as full array
+  const curveChanges = {};
+
+  for (const inp of inputs) {
+    if (inp.value === inp.dataset.orig) continue;
+    const field = inp.dataset.field;
+
+    // Check if this is a curve weight field
+    if (field.startsWith('curve.weights.')) {
+      curveChanges[field] = inp;
+      continue;
+    }
+
+    let value = inp.value;
+    // Parse numeric values
+    if (inp.type === 'number') {
+      value = value.includes('.') ? parseFloat(value) : parseInt(value, 10);
+      if (isNaN(value)) { errors.push(field + ': invalid number'); continue; }
+    }
+    const res = await api('/api/editor/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({section, profile, field, value})
+    });
+    if (res.ok) { saved++; inp.dataset.orig = String(inp.value); inp.classList.remove('changed'); }
+    else errors.push(field + ': ' + (res.error || 'failed'));
+  }
+
+  // Save individual curve weight changes
+  for (const [field, inp] of Object.entries(curveChanges)) {
+    const idx = parseInt(field.split('.')[2], 10);
+    // Read current full weights array from all curve inputs
+    const allCurveInputs = body.querySelectorAll('.curve-inputs input');
+    // Save this individual weight change
+    const value = parseFloat(inp.value) || 0;
+    const res = await api('/api/editor/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({section, profile, field: 'curve.weights.' + idx, value})
+    });
+    if (res.ok) { saved++; inp.dataset.orig = String(inp.value); inp.classList.remove('changed'); }
+    else errors.push(field + ': ' + (res.error || 'failed'));
+  }
+
+  if (errors.length) toast('Errors: ' + errors.join(', '), false);
+  else if (saved > 0) toast('Saved ' + saved + ' change(s) to ' + profile, true);
+  else toast('No changes to save', true);
+
+  // Refresh undo count
+  const hres = await api('/api/editor/history/' + section + '/' + profile);
+  if (hres.ok) {
+    UNDO_COUNTS[undoKey(section, profile)] = (hres.history || []).length;
+    updateUndoButton(section, profile);
+  }
+}
+
+async function undoCard(section, profile) {
+  const res = await api('/api/editor/undo', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({section, profile})
+  });
+  if (!res.ok) { toast('Undo failed: ' + (res.error || ''), false); return; }
+  toast('Undone: ' + (res.undone.field || '') + ' reverted', true);
+  // Reload config to reflect the change
+  await loadConfig();
+}
+
+function updateUndoButton(section, profile) {
+  const cards = document.querySelectorAll('.card');
+  for (const card of cards) {
+    const bodyEl = card.querySelector('.card-body');
+    if (!bodyEl) continue;
+    if (bodyEl.id === 'body-' + section + '-' + profile) {
+      const undoBtn = card.querySelector('.btn-undo');
+      if (undoBtn) {
+        const uc = UNDO_COUNTS[undoKey(section, profile)] || 0;
+        undoBtn.textContent = 'Undo (' + uc + ')';
+        undoBtn.disabled = uc === 0;
+      }
+      break;
+    }
+  }
+}
+
+// Handle curve.weights.N field path in write_bot_config_field
+// The backend needs to handle array index access
+
+// Initial load
+loadConfig();
+</script>
+</body>
+</html>
