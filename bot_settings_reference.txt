@@ -1,0 +1,155 @@
+BOT SETTINGS REFERENCE (v2.1)
+==============================
+Two independent axes: STRENGTH (ability/vision) and STYLE (personality/choice).
+Any combination works. Mercy and endgame weakness are STRENGTH concerns (ability),
+not style choices.
+
+
+================================================================================
+STRENGTH PROFILES  —  "What does the bot see? How capable is it?"
+================================================================================
+
+Controls Stockfish's search AND the bot's ability to find/play winning moves:
+  - engine_elo         : UCI_Elo cap (Stockfish limits itself)
+  - engine_skill       : Skill Level 0-20 (lower = more search errors)
+  - depth              : How many moves ahead it calculates
+  - engine_time        : Seconds spent thinking per move
+  - endgame_depth_delta: Reduce depth by this in endgames (negative = weaker)
+  - mercy              : Rules for missing mates and not crushing the player
+                         (None = no mercy, plays to win ruthlessly)
+
+                    Elo     Skill   Depth   Time    EG Delta   Mercy     Hints
+  ──────────────────────────────────────────────────────────────────────────────
+  Casual              600       2       5     0.25      -4       Yes       Unlimited
+  Moderate         1200       8      10     0.35      -2       Yes       3
+  Strong           1800      15      16     0.50       0       Yes (mild) 1
+  Expert           2200      20      22     1.00       0       None      0
+  ──────────────────────────────────────────────────────────────────────────────
+
+  Note: Perfect style always forces 0 hints regardless of strength.
+
+  Mercy details by strength:
+
+  CASUAL:     mate_in=4, mate_keep_prob=0.10, eval_gap=250, eval_keep=0.20
+            → Misses mates up to 4 moves away (90% of the time)
+            → Only 20% chance of playing a dominant crushing move
+
+  MODERATE: mate_in=3, mate_keep_prob=0.40, eval_gap=400, eval_keep=0.50
+            → Misses mates up to 3 moves away (60% of the time)
+            → 50% chance of playing a dominant move
+
+  STRONG:   mate_in=2, mate_keep_prob=0.85, eval_gap=600, eval_keep=0.90
+            → Rarely misses short mates (85% chance of playing them)
+            → Almost always plays the winning move (90%)
+
+  EXPERT:   mercy=None
+            → Never shows mercy. Always plays to win.
+
+
+================================================================================
+STYLE PROFILES  —  "How does the bot pick its move?"
+================================================================================
+
+After Stockfish analyses the position, the style profile decides WHICH move
+to play. These are purely personality traits — not ability limitations.
+
+  pick_temperature  : Randomness when sampling moves.
+                      0.0 = always pick the best. Higher = more random.
+
+  blunder_cap       : Maximum centipawn error allowed. If the randomly selected
+                      move is worse than best by more than this, the bot plays
+                      the best move instead. Safety net against absurd moves.
+
+  endgame_temp_delta: Add this to temperature in the endgame.
+                      Positive = more erratic endgame decisions.
+
+  pieces_threshold  : Endgame adjustments kick in when this many non-king
+                      pieces remain. Default: 10.
+
+  curve             : Weights for each candidate move by rank (best=index 0).
+                      Higher weight = more likely to be picked.
+
+
+────────────────────────────────────────────────────────────────────────────────
+RECKLESS
+────────────────────────────────────────────────────────────────────────────────
+  pick_temperature    : 2.0       (high randomness)
+  blunder_cap         : 600       (allows big mistakes, but not suicide)
+  endgame_temp_delta  : 0.5
+  curve weights       : [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+                        (gentle slope — willing to play any ranked move)
+
+  Personality: Wild and unpredictable. Picks suboptimal moves often, but the
+  blunder cap at 600cp prevents the worst blunders (tightened from 750).
+
+────────────────────────────────────────────────────────────────────────────────
+AGGRESSIVE
+────────────────────────────────────────────────────────────────────────────────
+  pick_temperature    : 1.5       (moderate randomness)
+  blunder_cap         : 450       (allows medium mistakes)
+  endgame_temp_delta  : 0.4
+  curve weights       : [15, 12, 10, 8, 6, 4, 3, 2, 1, 1]
+                        (prefers top moves but willing to gamble)
+
+  Personality: Risk-taker. Prefers sharp, tactical positions. More variance
+  than Cautious but not as chaotic as Reckless.
+
+────────────────────────────────────────────────────────────────────────────────
+CAUTIOUS
+────────────────────────────────────────────────────────────────────────────────
+  pick_temperature    : 0.8       (low randomness)
+  blunder_cap         : 250       (tight — rarely makes big mistakes)
+  endgame_temp_delta  : 0.1
+  curve weights       : [25, 18, 10, 5, 2, 1, 1, 1, 1, 1]
+                        (steep — strongly prefers the best move)
+
+  Personality: Solid and reliable. Consistently picks good moves. Slight
+  randomness prevents it from being robotic.
+
+────────────────────────────────────────────────────────────────────────────────
+PERFECT
+────────────────────────────────────────────────────────────────────────────────
+  pick_temperature    : 0.0       (zero randomness)
+  blunder_cap         : 10        (essentially never blunders)
+  endgame_temp_delta  : 0.0
+  curve weights       : [100, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                        (always picks rank 1, period)
+
+  Personality: Machine-like. Always plays the engine's top choice. Locked
+  to Expert strength (2200 Elo, depth 22).
+
+
+================================================================================
+COMBINATION EXAMPLES
+================================================================================
+
+  Casual + Reckless     : Misses mates, plays random moves. Very beatable. Unlimited hints.
+  Casual + Cautious     : Misses mates, but plays the best it CAN see. Tricky. Unlimited hints.
+  Moderate + Aggressive: Sees most tactics, sometimes gambles. Fun opponent.
+  Strong + Cautious   : Sees almost everything, plays safe. Very tough.
+  Strong + Reckless   : Sees everything but plays wild moves. Wildcard.
+  Expert + Perfect    : Full Stockfish at 2200. Final boss.
+
+  Key insight: A "Strong + Reckless" bot CAN find mate — it just might not
+  play it because the style is chaotic. A "Casual + Cautious" bot will MISS
+  mates because it can't calculate that far, regardless of style.
+
+
+================================================================================
+TUNING GUIDE
+================================================================================
+
+  Want the bot to blunder MORE (style)?
+    → Increase pick_temperature (e.g. 1.5 → 2.5)
+    → Increase blunder_cap (e.g. 250 → 600)
+    → Flatten the curve weights
+
+  Want the bot to miss MORE mates (strength)?
+    → Lower mate_keep_prob (e.g. 0.40 → 0.10)
+    → Increase mate_in range (e.g. 3 → 5)
+
+  Want the bot to play weaker endgames (strength)?
+    → Make endgame_depth_delta more negative (e.g. -2 → -4)
+
+  Want more erratic endgame decisions (style)?
+    → Increase endgame_temp_delta (e.g. 0.1 → 0.8)
