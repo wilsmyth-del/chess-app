@@ -6,7 +6,7 @@
 	--card-accent: rgba(14,95,61,0.06); /* light green tint for form fields */
 	--card-accent-strong: #f1fbf6;
 	--modal-overlay: rgba(0,0,0,0.5);
-	--danger: #3aa0ff; /* light blue for light theme */
+	--danger: #8b1a1a; /* deep red for resign */
 }
 
 [data-theme="dark"] {
@@ -17,8 +17,15 @@
 	--card-accent: rgba(11,77,50,0.12);
 	--card-accent-strong: rgba(7,41,26,0.35);
 	--modal-overlay: rgba(0,0,0,0.75);
-	--danger: #0b8043; /* deep green for dark theme */
+	--danger: #a02020; /* deep red for resign (dark theme) */
 }
+
+/* Remove default focus outlines from all buttons */
+button, .ctrl, .pill-btn { outline: none; }
+
+/* Pill button states */
+.pill-disabled { opacity: 0.35; pointer-events: none; cursor: default; }
+.pill-hidden { display: none; }
 
 /* Ensure dragged chess piece stays visible during drag */
 .piece-417db {

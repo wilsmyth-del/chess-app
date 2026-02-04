@@ -6,23 +6,25 @@
 // ============================================================================
 const ChessSounds = {
   move: null,
+  capture: null,  // NEW: Capture sound
   check: null,
   checkmate: null,
   select: null,
+  reset: null,
   enabled: true,
 
   // Load all sound files
   init() {
     try {
-      this.move = new Audio('/static/sounds/move.ogg');
-      this.check = new Audio('/static/sounds/check.ogg');
-      this.checkmate = new Audio('/static/sounds/checkmate.ogg');
-      this.select = new Audio('/static/sounds/select.mp3');
+      this.move = new Audio('/static/sounds/piece/move.mp3');
+      this.capture = new Audio('/static/sounds/piece/capture.mp3');
+      this.reset = new Audio('/static/sounds/piece/reset.mp3');
+      this.select = new Audio('/static/sounds/system/select.mp3');
       
       // Preload sounds
       this.move.load();
-      this.check.load();
-      this.checkmate.load();
+      this.capture.load();
+      this.reset.load();
       this.select.load();
       
       console.log('Chess sounds loaded');
@@ -47,10 +49,26 @@ const ChessSounds = {
 
   // Convenience methods
   playMove() { this.play('move'); },
+  playCapture() { this.play('capture'); },  // NEW
   playCheck() { this.play('check'); },
   playCheckmate() { this.play('checkmate'); },
+  playReset() { this.play('reset'); },
   playSelect() { this.play('select'); }
 };
+
+// Helper function to count pieces in a FEN string (for capture detection)
+function countPiecesInFen(fen) {
+  if (!fen) return 0;
+  const position = fen.split(' ')[0]; // Get just the piece placement part
+  let count = 0;
+  for (let char of position) {
+    // Count letters (pieces), skip numbers (empty squares) and slashes (rank separators)
+    if (char.match(/[a-zA-Z]/)) {
+      count++;
+    }
+  }
+  return count;
+}
 
 // ============================================================================
 // VOICE SYSTEM (Browser TTS - upgradeable to ElevenLabs later)
@@ -112,6 +130,10 @@ const ChessVoice = {
   sayResignYou() { this.speak('resignYou'); },
   sayResignOpponent() { this.speak('resignOpponent'); }
 };
+
+// Expose on window so voice_overrides.js (loaded after main.js) can patch them
+window.ChessSounds = ChessSounds;
+window.ChessVoice = ChessVoice;
 
 // Debounce tracking for tap-to-move to prevent double-triggering
 let lastHandledSquare = null;
@@ -278,51 +300,132 @@ function attemptMove(from, to) {
 // ============================================================================
 
 /**
- * Bot difficulty profiles - Single source of truth for persona configuration
- * Each profile defines engine parameters and hint availability
- * @property {number} skill - UCI engine skill level (0-20, higher is stronger)
- * @property {number} time - Time limit per move in seconds
- * @property {number} hints - Number of hints available (Infinity for unlimited)
- * @property {string} description - User-friendly description of difficulty level
- * 
- * BOT ARCHITECTURE:
- * 1. THE BASE: 'skill' and 'time' set the UCI engine's hard limits (Elo/Depth)
- * 2. THE PERSONA: The 'name' (e.g. 'Grasshopper') is sent to the server
- *    The server uses this name to apply a specific probability curve to move selection
- *    (e.g., favoring blunders vs. best moves)
+ * Build-A-Bot System - Modular strength + style configuration
+ * Players mix and match strength levels with playing styles
  */
-const BOT_PROFILES = {
-  'Beginner': { 
-    skill: 1, 
-    time: 0.25, 
-    hints: Infinity, 
-    description: 'Learning the basics - makes obvious mistakes' 
+
+// STRENGTH configurations (calculation power)
+const STRENGTH_CONFIGS = {
+  'casual': {
+    skill: 2,
+    time: 0.25,
+    elo: 600,
+    hints: Infinity,
+    label: 'Casual',
+    description: 'Casual level calculation'
   },
-  'Intermediate': { 
-    skill: 5, 
-    time: 0.35, 
-    hints: 2, 
-    description: 'Solid player - sees most tactics' 
+  'moderate': {
+    skill: 8,
+    time: 0.35,
+    elo: 1200,
+    hints: 3,
+    label: 'Moderate',
+    description: 'Club player calculation'
   },
-  'Advanced': { 
-    skill: 12, 
-    time: 0.5, 
-    hints: 0, 
-    description: 'Strong player - finds good moves consistently' 
+  'strong': {
+    skill: 15,
+    time: 0.5,
+    elo: 1800,
+    hints: 1,
+    label: 'Strong',
+    description: 'Advanced calculation'
+  },
+  'expert': {
+    skill: 20,
+    time: 1.0,
+    elo: 2200,
+    hints: 0,
+    label: 'Expert',
+    description: 'Expert level calculation'
   }
 };
 
-// Backwards compatibility alias
+// STYLE configurations (personality/behavior)
+const STYLE_CONFIGS = {
+  'reckless': {
+    persona: 'reckless',
+    label: 'Reckless',
+    description: 'Makes big mistakes, hangs pieces, chaotic'
+  },
+  'cautious': {
+    persona: 'cautious',
+    label: 'Cautious',
+    description: 'Plays safe and solid'
+  },
+  'aggressive': {
+    persona: 'aggressive',
+    label: 'Aggressive',
+    description: 'Seeks attacks and tactics'
+  },
+  'perfect': {
+    persona: 'perfect',
+    label: 'Perfect',
+    description: 'Always finds the best move'
+  }
+};
+
+/**
+ * Compose a bot from strength + style
+ * @param {string} strength - Strength key (casual, moderate, strong)
+ * @param {string} style - Style key (reckless, cautious, aggressive, perfect)
+ * @returns {Object} Combined bot configuration
+ */
+function composeBotConfig(strength, style) {
+  const strengthCfg = STRENGTH_CONFIGS[strength] || STRENGTH_CONFIGS['moderate'];
+  const styleCfg = STYLE_CONFIGS[style] || STYLE_CONFIGS['cautious'];
+
+  // Hints come from strength, but Perfect style forces 0
+  const hints = (style === 'perfect') ? 0 : strengthCfg.hints;
+
+  return {
+    skill: strengthCfg.skill,
+    time: strengthCfg.time,
+    elo: strengthCfg.elo,
+    hints: hints,
+    persona: styleCfg.persona,
+    description: `${strengthCfg.description}, ${styleCfg.description}`,
+    strengthLabel: strengthCfg.label,
+    styleLabel: styleCfg.label
+  };
+}
+
+/**
+ * Get human-readable description of bot combination
+ */
+function getBotDescription(strength, style) {
+  if (style === 'perfect') {
+    return 'Perfect — always plays the best move at Expert level';
+  }
+  const strengthCfg = STRENGTH_CONFIGS[strength] || STRENGTH_CONFIGS['moderate'];
+  const styleCfg = STYLE_CONFIGS[style] || STYLE_CONFIGS['cautious'];
+
+  return `${strengthCfg.label} strength, ${styleCfg.description}`;
+}
+
+// Backwards compatibility - map old bot names to strength+style combos
+const BOT_PROFILES = {
+  'Beginner': composeBotConfig('casual', 'reckless'),
+  'Intermediate': composeBotConfig('moderate', 'cautious'),
+  'Advanced': composeBotConfig('strong', 'perfect')
+};
+
 const botProfiles = BOT_PROFILES;
 
 /**
  * Applies a bot difficulty profile to the engine
- * @param {string} name - Name of bot profile (Beginner, Intermediate, or Advanced)
+ * @param {string} name - Name of bot profile or composed config object
  * @returns {Object|null} The bot profile config or null if not found
  */
-function applyBotProfile(name) {
-  if (!name) return null;
-  return BOT_PROFILES[name] || null;
+function applyBotProfile(nameOrConfig) {
+  if (!nameOrConfig) return null;
+  
+  // If it's already a config object, return it
+  if (typeof nameOrConfig === 'object') {
+    return nameOrConfig;
+  }
+  
+  // Otherwise look it up in BOT_PROFILES
+  return BOT_PROFILES[nameOrConfig] || null;
 }
 
 /**
@@ -393,17 +496,34 @@ function setEngineBusyState(b) {
 function updatePlayersDisplay() {
   try {
     const pnameEl = document.getElementById('player-name');
-    const oppEl = document.getElementById('engine-persona');
     const personaIndicator = document.getElementById('persona-indicator');
     const playerLabel = document.getElementById('player-label');
     const opponentLabel = document.getElementById('opponent-label');
 
     const playerName = (pnameEl && pnameEl.value) ? pnameEl.value : 'Player';
-    const personaName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : '';
+    
+    // Get composed bot info
+    const strength = document.getElementById('bot-strength')?.value || 'moderate';
+    const style = document.getElementById('bot-style')?.value || 'cautious';
+    const botConfig = composeBotConfig(strength, style);
+    const botDisplayName = `${botConfig.strengthLabel} / ${botConfig.styleLabel}`;
 
-    if (personaIndicator) personaIndicator.textContent = `Persona: ${personaName || '(none)'}`;
+    if (personaIndicator) personaIndicator.textContent = `Bot: ${botDisplayName}`;
     if (playerLabel) playerLabel.textContent = playerName;
-    if (opponentLabel) opponentLabel.textContent = (oppEl && oppEl.value) ? oppEl.value : (playEngine ? 'Engine' : 'Opponent');
+    if (opponentLabel) opponentLabel.textContent = playEngine ? botDisplayName : 'Opponent';
+    
+    // Update scoresheet player names
+    const whitePlayerEl = document.getElementById('white-player-name');
+    const blackPlayerEl = document.getElementById('black-player-name');
+    const playerColor = document.getElementById('player-color')?.value || 'white';
+    
+    if (playerColor === 'white') {
+      if (whitePlayerEl) whitePlayerEl.textContent = `White: ${playerName}`;
+      if (blackPlayerEl) blackPlayerEl.textContent = `Black: ${botDisplayName}`;
+    } else {
+      if (whitePlayerEl) whitePlayerEl.textContent = `White: ${botDisplayName}`;
+      if (blackPlayerEl) blackPlayerEl.textContent = `Black: ${playerName}`;
+    }
   } catch (e) { console.error('Operation failed:', e); }
 }
 
@@ -422,19 +542,22 @@ function applyTheme(name) {
 }
 
 // Centralized engine parameter extraction.
-// Returns `{ engine_time, engine_skill, engine_persona }` with sensible fallbacks.
+// Returns strength name + style persona name. Backend assembles the full config.
 function getEngineParams() {
   try {
-    const personaName = (document.getElementById('engine-persona')?.value || '').trim();
-    const profile = (personaName && botProfiles[personaName]) ? botProfiles[personaName] : botProfiles['Intermediate'];
+    const strength = document.getElementById('bot-strength')?.value || 'moderate';
+    const style = document.getElementById('bot-style')?.value || 'cautious';
+    const config = composeBotConfig(strength, style);
+
     return {
-      engine_persona: personaName,
-      engine_skill: profile.skill,
-      engine_time: profile.time
+      engine_persona: config.persona,      // style name (e.g. "cautious")
+      engine_strength: strength,           // strength name (e.g. "casual")
+      engine_skill: config.skill,          // backward compat fallback
+      engine_time: config.time
     };
   } catch (e) {
     console.warn('getEngineParams failed', e);
-    return { engine_persona: '', engine_skill: 5, engine_time: 0.5 };
+    return { engine_persona: 'cautious', engine_strength: 'moderate', engine_skill: 5, engine_time: 0.5 };
   }
 }
 
@@ -1052,55 +1175,81 @@ function computeSanSequence(prevFen, newFen) {
 }
 
 function renderMoveList() {
-  const listEl = document.getElementById('move-list');
-  if (!listEl) return;
+  // Legacy function name kept for compatibility - now renders scoresheet
+  renderScoresheet();
+}
 
-  listEl.innerHTML = '';
+function renderScoresheet() {
+  const scoresheetEl = document.getElementById('scoresheet-moves');
+  if (!scoresheetEl) return;
 
-  // Flatten the historyMoves array (since it might contain chunks like ['e4'] or ['e4','e5'])
+  scoresheetEl.innerHTML = '';
+
+  // Flatten the historyMoves array
   let allMoves = [];
   historyMoves.forEach(chunk => {
     if (Array.isArray(chunk)) allMoves.push(...chunk);
   });
 
-  for (let i = 0; i < allMoves.length; i++) {
-    const moveNum = Math.floor(i / 2) + 1;
-    // Add move number for White's moves
-    if (i % 2 === 0) {
-      const numSpan = document.createElement('span');
-      numSpan.style.color = '#888'; numSpan.style.marginRight = '4px'; numSpan.style.marginLeft = '8px';
-      numSpan.textContent = moveNum + '.';
-      listEl.appendChild(numSpan);
-    }
-
-    // The Move Element
-    const moveSpan = document.createElement('span');
-    moveSpan.textContent = allMoves[i];
-    moveSpan.style.cursor = 'pointer';
-    moveSpan.style.padding = '1px 3px';
-    moveSpan.style.borderRadius = '3px';
-    // Highlight if this is the active move in history
-    // historyIndex points to the FEN after this move.
-    // Since historyFens has 1 extra item (start pos), historyIndex 1 = after move 1.
-    // So move index 'i' corresponds to historyIndex 'i+1'.
-    if (i + 1 === historyIndex) {
-      moveSpan.style.background = '#28a745'; // Green highlight
-      moveSpan.style.color = '#fff';
-      moveSpan.id = 'active-move'; // Marker for auto-scroll
-    } else {
-      moveSpan.style.color = '#ccc';
-    }
-
-    // Click to jump to this move
-    moveSpan.onclick = () => { try { historyIndex = i + 1; setFen(historyFens[historyIndex], false); } catch (e) { console.error('Operation failed:', e); } };
-
-    listEl.appendChild(moveSpan);
+  if (allMoves.length === 0) {
+    scoresheetEl.innerHTML = '<div style="padding:20px; text-align:center; color:#666; font-style:italic;">Moves will appear here...</div>';
+    return;
   }
 
-  // Auto-scroll to bottom or active move
+  // Render moves in pairs (White + Black per row)
+  for (let i = 0; i < allMoves.length; i += 2) {
+    const moveNum = Math.floor(i / 2) + 1;
+    const whiteMove = allMoves[i];
+    const blackMove = allMoves[i + 1] || '';
+
+    // Create move pair row
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid; grid-template-columns:40px 1fr 1fr; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.05);';
+
+    // Move number
+    const numCell = document.createElement('div');
+    numCell.style.cssText = 'text-align:center; color:#888; font-weight:600;';
+    numCell.textContent = moveNum + '.';
+    row.appendChild(numCell);
+
+    // White's move
+    const whiteCell = document.createElement('div');
+    whiteCell.style.cssText = 'padding-left:8px; cursor:pointer; border-radius:3px;';
+    whiteCell.textContent = whiteMove;
+    if (i + 1 === historyIndex) {
+      whiteCell.style.background = '#28a745';
+      whiteCell.style.color = '#fff';
+      whiteCell.id = 'active-move';
+    } else {
+      whiteCell.style.color = '#ddd';
+    }
+    whiteCell.onclick = () => { try { historyIndex = i + 1; setFen(historyFens[historyIndex], false); renderScoresheet(); } catch (e) { console.error('Operation failed:', e); } };
+    row.appendChild(whiteCell);
+
+    // Black's move
+    const blackCell = document.createElement('div');
+    blackCell.style.cssText = 'padding-left:8px; cursor:pointer; border-radius:3px;';
+    if (blackMove) {
+      blackCell.textContent = blackMove;
+      if (i + 2 === historyIndex) {
+        blackCell.style.background = '#28a745';
+        blackCell.style.color = '#fff';
+        blackCell.id = 'active-move';
+      } else {
+        blackCell.style.color = '#ccc';
+      }
+      blackCell.onclick = () => { try { historyIndex = i + 2; setFen(historyFens[historyIndex], false); renderScoresheet(); } catch (e) { console.error('Operation failed:', e); } };
+    }
+    row.appendChild(blackCell);
+
+    scoresheetEl.appendChild(row);
+  }
+
+  // Auto-scroll to active move
   const active = document.getElementById('active-move');
-  if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  else listEl.scrollTop = listEl.scrollHeight;
+  if (active) {
+    active.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+  }
 }
 
 // Accordion toggle handlers
@@ -1561,6 +1710,10 @@ function handleGameDrop(source, target, piece) {
   // Normal move: local legality gate
   const attempted = game.move({ from: source, to: target });
   if (attempted == null) return 'snapback';
+  
+  // Store whether this was a capture
+  const wasCapture = attempted.captured ? true : false;
+  
   // 1. Apply the move locally and SAVE it to history (Intermediate State)
   // (we intentionally do not undo here so the UI reflects the user's ply)
   const intermediateFen = game.fen();
@@ -1570,8 +1723,14 @@ function handleGameDrop(source, target, piece) {
   submitUci(source + target, prevFen);
   // 3. Update status
   setStatus('Move sent: ' + source + target);
-  // Play move sound
-  try { ChessSounds.playMove(); } catch (e) { console.warn('Sound playback failed', e); }
+  // Play appropriate sound (capture vs normal move)
+  try { 
+    if (wasCapture) {
+      ChessSounds.playCapture();
+    } else {
+      ChessSounds.playMove();
+    }
+  } catch (e) { console.warn('Sound playback failed', e); }
   // Accept the drop visually since we've already updated the board
   return 'trash';
 }
@@ -1613,14 +1772,24 @@ function submitUci(uci, prevFen) {
     }
 
     if (resp && resp.fen) {
+      // Detect if engine's move was a capture by comparing piece counts
+      const prevPieceCount = countPiecesInFen(game.fen());
       setFen(resp.fen, true);
+      const newPieceCount = countPiecesInFen(resp.fen);
+      const engineCapture = newPieceCount < prevPieceCount;
 
       let msg = 'Move played: ' + uci;
       if (resp.engine_reply) msg += ' | Engine: ' + resp.engine_reply;
       setStatus(msg);
       
-      // Play move sound for engine's reply
-      try { ChessSounds.playMove(); } catch (e) { console.warn('Sound playback failed', e); }
+      // Play appropriate sound for engine's reply (capture vs normal move)
+      try { 
+        if (engineCapture) {
+          ChessSounds.playCapture();
+        } else {
+          ChessSounds.playMove();
+        }
+      } catch (e) { console.warn('Sound playback failed', e); }
 
       // If server reports game end, use the canonical PGN returned once
       if (resp.game_over) {
@@ -1761,7 +1930,90 @@ window.addEventListener('load', async () => {
     }
 
     setupPillSelector('player-color-pills', 'player-color', 'white', (v) => { try { setBoardOrientation(v); } catch (e) { console.error('Operation failed:', e); } });
-    setupPillSelector('engine-persona-pills', 'engine-persona', 'Intermediate', (v) => { try { applyBotProfile(v); updatePlayersDisplay(); } catch (e) { console.error('Operation failed:', e); } });
+    
+    // Build-A-Bot selectors
+    function updateBotDescription() {
+      try {
+        const strength = document.getElementById('bot-strength')?.value || 'moderate';
+        const style = document.getElementById('bot-style')?.value || 'cautious';
+        const desc = getBotDescription(strength, style);
+        const descEl = document.getElementById('bot-description');
+        if (descEl) descEl.textContent = desc;
+      } catch (e) { console.error('Failed to update bot description:', e); }
+    }
+
+    function applyPerfectLock() {
+      try {
+        const styleVal = document.getElementById('bot-style')?.value || 'cautious';
+        const strengthInput = document.getElementById('bot-strength');
+        const strengthContainer = document.getElementById('strength-pills');
+        if (!strengthInput || !strengthContainer) return;
+        const pills = Array.from(strengthContainer.querySelectorAll('[data-value]'));
+        const isPerfect = (styleVal === 'perfect');
+
+        pills.forEach(btn => {
+          const v = btn.getAttribute('data-value');
+          if (v === 'expert') {
+            // Expert: visible only when Perfect is selected
+            if (isPerfect) {
+              btn.classList.remove('pill-hidden');
+              btn.classList.remove('pill-disabled');
+            } else {
+              btn.classList.add('pill-hidden');
+            }
+          } else {
+            // Casual/Moderate/Strong: disabled when Perfect is selected
+            if (isPerfect) {
+              btn.classList.add('pill-disabled');
+            } else {
+              btn.classList.remove('pill-disabled');
+            }
+          }
+        });
+
+        if (isPerfect) {
+          // Force Expert strength
+          strengthInput.value = 'expert';
+          localStorage.setItem('bot-strength', 'expert');
+          // Update visual selection
+          pills.forEach(btn => {
+            if (btn.getAttribute('data-value') === 'expert') {
+              btn.style.background = '#222'; btn.style.color = '#fff';
+            } else {
+              btn.style.background = 'transparent'; btn.style.color = '#ccc';
+            }
+          });
+        } else if (strengthInput.value === 'expert') {
+          // Switching away from Perfect — fall back to Moderate
+          strengthInput.value = 'moderate';
+          localStorage.setItem('bot-strength', 'moderate');
+          pills.forEach(btn => {
+            if (btn.getAttribute('data-value') === 'moderate') {
+              btn.style.background = '#222'; btn.style.color = '#fff';
+            } else {
+              btn.style.background = 'transparent'; btn.style.color = '#ccc';
+            }
+          });
+        }
+      } catch (e) { console.error('applyPerfectLock failed:', e); }
+    }
+
+    setupPillSelector('strength-pills', 'bot-strength', 'moderate', (v) => {
+      try {
+        updateBotDescription();
+      } catch (e) { console.error('Operation failed:', e); }
+    });
+
+    setupPillSelector('style-pills', 'bot-style', 'cautious', (v) => {
+      try {
+        applyPerfectLock();
+        updateBotDescription();
+      } catch (e) { console.error('Operation failed:', e); }
+    });
+
+    // Initialize lock + description on load
+    applyPerfectLock();
+    updateBotDescription();
   } catch (e) { /* ignore pill wiring errors */ }
 
   // Load persisted hintsRemaining if present
@@ -2125,32 +2377,24 @@ window.addEventListener('load', async () => {
     if (exportBtn) {
       exportBtn.addEventListener('click', async () => {
         try {
-          const pos = board.position();
-          const fen = rebuildGameFromPosition(pos);
+          // In free-board mode rebuild FEN from visual board; otherwise use the
+          // game object which already tracks castling, en passant, side to move, etc.
+          const fen = freeBoardMode
+            ? rebuildGameFromPosition(board.position())
+            : (game && typeof game.fen === 'function' ? game.fen() : null);
           if (fen) {
             const fenEl = document.getElementById('fen');
             if (fenEl) fenEl.textContent = fen;
-            // try clipboard API first
-            try {
-              if (navigator.clipboard && navigator.clipboard.writeText) {
-                await navigator.clipboard.writeText(fen);
-                setStatus('FEN exported  - copied to clipboard');
-              } else {
-                // fallback to textarea copy
-                const ta = document.createElement('textarea');
-                ta.value = fen;
-                document.body.appendChild(ta);
-                ta.select();
-                const ok = document.execCommand('copy');
-                document.body.removeChild(ta);
-                setStatus(ok ? 'FEN exported  - copied to clipboard' : 'FEN exported (copy failed)');
-              }
-            } catch (e) {
-              console.warn('clipboard copy failed', e);
-              setStatus('FEN exported (copy failed)');
+            const copied = await copyFenToClipboard(fen);
+            if (copied) {
+              setStatus('FEN copied to clipboard');
+            } else {
+              // Clipboard failed — show a prompt so the user can copy manually
+              window.prompt('Copy this FEN:', fen);
+              setStatus('FEN exported');
             }
           } else {
-            setStatus('Export failed');
+            setStatus('No position to export');
           }
         } catch (e) { console.warn('export fen failed', e); setStatus('Export failed'); }
       });
@@ -2299,6 +2543,20 @@ window.addEventListener('load', async () => {
         // Show modal
         if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'false');
         
+        // Update scoresheet result
+        const scoresheetResult = document.getElementById('scoresheet-result');
+        if (scoresheetResult) {
+          const resultText = info.result || '';
+          const reason = info.reason || '';
+          const display = reason ? `${reason} - ${resultText}` : resultText;
+          scoresheetResult.textContent = `✓ ${display}`;
+          scoresheetResult.style.display = 'block';
+        }
+        
+        // Enable Download PGN button
+        const downloadBtnGame = document.getElementById('download-pgn-btn-ingame');
+        if (downloadBtnGame) downloadBtnGame.style.display = 'flex';
+        
         // Play appropriate voice based on result
         try {
           const result = info.result || '';
@@ -2390,9 +2648,32 @@ window.addEventListener('load', async () => {
     const downloadFinal = document.getElementById('download-final-pgn');
     const newGameBtn = document.getElementById('new-game-btn');
     
-    // Game-over modal elements
-    const modalDownloadPgn = document.getElementById('modal-download-pgn');
-    const modalNewGame = document.getElementById('modal-new-game');
+    // Persistent buttons in game panel
+    const newGameBtnGame = document.getElementById('new-game-btn-game');
+    const downloadPgnBtnGame = document.getElementById('download-pgn-btn-ingame');
+
+    // Board-bottom Download PGN button (always visible below the board)
+    const downloadPgnBtnBoard = document.getElementById('download-pgn-btn-game');
+    if (downloadPgnBtnBoard) downloadPgnBtnBoard.addEventListener('click', async () => {
+      try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
+      try {
+        // Use final PGN if available; otherwise build one from the current game state
+        let pgn = lastFinalPgn;
+        if (!pgn && game && typeof game.pgn === 'function') {
+          pgn = game.pgn();
+        }
+        if (pgn) {
+          const blob = new Blob([pgn], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = 'game.pgn'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          setStatus('PGN downloaded');
+        } else {
+          setStatus('No moves to export');
+        }
+      } catch (e) { setStatus('Download failed'); }
+    });
+    
+    // Game-over modal elements (simplified - just OK button now)
     const gameOverClose = document.getElementById('game-over-close');
     const gameOverModal = document.getElementById('game-over-modal');
 
@@ -2418,9 +2699,8 @@ window.addEventListener('load', async () => {
       } catch (e) { setStatus('Download failed'); }
     });
     
-    // Modal download PGN button
-    if (modalDownloadPgn) modalDownloadPgn.addEventListener('click', async () => {
-      // Play select sound
+    // Persistent Download PGN button (in game panel)
+    if (downloadPgnBtnGame) downloadPgnBtnGame.addEventListener('click', async () => {
       try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
       try {
         if (lastFinalPgn) {
@@ -2434,45 +2714,49 @@ window.addEventListener('load', async () => {
       } catch (e) { setStatus('Download failed'); }
     });
     
-    // Modal new game button - close modal and reset game
-    if (modalNewGame) modalNewGame.addEventListener('click', async () => {
-      // Play select sound
+    // Persistent New Game button (in game panel)
+    if (newGameBtnGame) newGameBtnGame.addEventListener('click', async () => {
       try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
       try {
-        // Close modal
+        // Close modal if open
         if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'true');
         
-        // Reset game (same logic as newGameBtn)
+        // Reset game
         try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
         gameOver = false;
         lastFinalPgn = null;
         try { setUIState('SETUP'); } catch (e) { console.error('Operation failed:', e); }
         
         // Reset the board
-        await fetch('/api/game/reset', { method: 'POST' });
         try {
-          const resp = await fetch('/api/game/init');
-          const data = await resp.json();
-          if (data && data.ok) {
-            game = new Chess(data.fen || 'start');
-            board.position(data.fen || 'start', false);
-            if (data.player_color && data.player_color.toLowerCase() === 'black') {
-              board.orientation('black');
-            } else {
-              board.orientation('white');
-            }
-            updateCapturedPieces();
-            updateStatus();
+          setStatus('Resetting board...');
+          const r = await postReset();
+          if (r && r.fen) {
+            historyFens = [];
+            historyMoves = [];
+            historyIndex = -1;
+            setFen(r.fen, true);
+            try { renderMoveList(); } catch (e) { console.error('Operation failed:', e); }
+            setStatus('Ready for new game');
+            
+            // Hide scoresheet result and download button
+            const scoresheetResult = document.getElementById('scoresheet-result');
+            if (scoresheetResult) scoresheetResult.style.display = 'none';
+            if (downloadPgnBtnGame) downloadPgnBtnGame.style.display = 'none';
+          } else {
+            setStatus('Reset failed (Network)');
           }
-        } catch (e) { console.error('Failed to reset board:', e); }
+        } catch (e) {
+          setStatus('Reset failed (Network)');
+          console.error(e);
+        }
       } catch (e) { console.error('Failed to start new game:', e); }
     });
     
-    // Modal close button (X)
+    // Modal OK/Close button
     if (gameOverClose) gameOverClose.addEventListener('click', () => {
       try {
         if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'true');
-        // Don't auto-reset when closing with X, user can click New Game if they want
       } catch (e) { console.error('Operation failed:', e); }
     });
     
@@ -2616,53 +2900,40 @@ window.addEventListener('load', async () => {
         return;
       }
 
+      // Play reset sound
+      try { ChessSounds.playReset(); } catch (e) { console.warn('Sound playback failed', e); }
+
+      // Stop engine and clear game state
+      try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+      gameOver = false;
+      lastFinalPgn = null;
+      autoPgnSaved = false;
+
+      // Reset server-side board
       const resp = await postReset();
       if (resp && resp.fen) {
-        // Reset history and load server position
         historyFens = [];
         historyMoves = [];
         historyIndex = -1;
         setFen(resp.fen, true);
         try { renderMoveList(); } catch (e) { console.error('Operation failed:', e); }
-        // clear captured pieces on reset
+        try { renderScoresheet(); } catch (e) { console.error('Operation failed:', e); }
         try { clearCapturedTrays(); } catch (e) { console.error('Operation failed:', e); }
-        // clearing any game-over state
-        gameOver = false;
-        autoPgnSaved = false;
-        setStatus('Position reset');
-        // If play mode active and player is black, ask engine to play White's first move
-        if (playEngine && playerSelect && playerSelect.value === 'black') {
-          try {
-            const r2 = await postEngineMove();
-            if (r2 && r2.fen) {
-              historyFens = [];
-              historyMoves = [];
-              historyIndex = -1;
-              setFen(r2.fen, true);
-              try { renderMoveList(); } catch (e) { console.error('Operation failed:', e); }
-              // If server reports game end, finalize locally as well
-              if (r2.game_over) {
-                gameOver = true;
-                lastFinalPgn = r2.pgn || null;
-                try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
-                const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
-                setStatus('Game ended: ' + resultText);
-                const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
-                setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
-                try { autoSaveGameToServer(r2.pgn, r2.result); } catch (e) { console.error('Operation failed:', e); }
-              } else {
-                setStatus('Engine played first move');
-              }
-            } else {
-              setStatus('Engine move failed');
-            }
-          } catch (e) {
-            setStatus('Network error: engine move failed');
-          }
-        }
+        // Hide scoresheet result bar
+        try {
+          const scoresheetResult = document.getElementById('scoresheet-result');
+          if (scoresheetResult) scoresheetResult.style.display = 'none';
+        } catch (e) { console.error('Operation failed:', e); }
+        // Reset board orientation to white (default)
+        try { if (board && typeof board.orientation === 'function') board.orientation('white'); } catch (e) { console.error('Operation failed:', e); }
       } else {
         setStatus('Reset failed');
+        return;
       }
+
+      // Return to setup screen
+      try { setUIState('SETUP'); } catch (e) { console.error('Operation failed:', e); }
+      setStatus('Ready for new game');
     });
   }
 
@@ -2922,6 +3193,18 @@ window.addEventListener('load', async () => {
 
   // Unified startGame using the Lobby inputs
   async function startGame() {
+    // 0. Reset move history and scoresheet from any previous game
+    historyFens = [];
+    historyMoves = [];
+    historyIndex = -1;
+    gameOver = false;
+    lastFinalPgn = null;
+    try { renderScoresheet(); } catch (e) { console.error('Operation failed:', e); }
+    try {
+      const scoresheetResult = document.getElementById('scoresheet-result');
+      if (scoresheetResult) scoresheetResult.style.display = 'none';
+    } catch (e) { console.error('Operation failed:', e); }
+
     // 1. Gather settings from the Setup Panel
     const nameInput = document.getElementById('player-name');
     const colorInput = document.getElementById('player-color');
@@ -2938,15 +3221,16 @@ window.addEventListener('load', async () => {
       if (personaInput) localStorage.setItem('enginePersona', personaVal);
     } catch (e) { console.error('Operation failed:', e); }
 
-    // 3. Reset the Hint Budget (Rules)
+    // 3. Reset the Hint Budget (from bot configuration)
     try {
-      const pLower = personaVal.toLowerCase();
-      if (pLower === 'grasshopper') hintsRemaining = Infinity;
-      else if (pLower === 'student') hintsRemaining = 3;
-      else if (pLower === 'adept') hintsRemaining = 2;
-      else if (pLower === 'ninja') hintsRemaining = 1;
-      else hintsRemaining = 0;
-    } catch (e) { hintsRemaining = 0; }
+      const strength = document.getElementById('bot-strength')?.value || 'moderate';
+      const style = document.getElementById('bot-style')?.value || 'cautious';
+      const botConfig = composeBotConfig(strength, style);
+      hintsRemaining = botConfig.hints;
+    } catch (e) { 
+      console.error('Failed to set hints:', e);
+      hintsRemaining = 0; 
+    }
 
     // 4. Update Board Orientation
     try { if (board && typeof board.orientation === 'function') { board.orientation(playerColor); } } catch (e) { console.error('Operation failed:', e); }
