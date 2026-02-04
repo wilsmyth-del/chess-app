@@ -1,11 +1,10 @@
-from flask import Blueprint, jsonify, request, current_app, render_template, send_file
-from app.chess_core import ChessGame, BOT_PRESETS
+from flask import Blueprint, jsonify, request, send_file
+from app.chess_core import ChessGame
 from app.engine_personas import PERSONA_DEFAULT_ENGINE_TIME
 import os
 import datetime
 import csv
 import chess.pgn
-import traceback
 
 api_bp = Blueprint("api", __name__)
 
@@ -13,7 +12,12 @@ api_bp = Blueprint("api", __name__)
 game = ChessGame()
 
 # Feature gate for v1: when True, hide Free Board / Study features and related endpoints
-V1_MODE = False
+V1_MODE = True
+
+# --- Security caps ---
+MAX_ENGINE_TIME = 5.0       # max seconds per engine think
+MAX_SIM_MOVES = 400         # max moves per simulation game
+MAX_BATCH_COUNT = 20        # max games in a batch simulation
 
 from functools import wraps
 
@@ -55,39 +59,22 @@ def api_move():
     ok, err = game.make_move(uci)
     if not ok:
         return jsonify({"ok": False, "error": err}), 400
+    # Early game-over check: if the player's move ended the game (checkmate,
+    # stalemate, insufficient material, etc.), return immediately instead of
+    # asking the engine to play in a terminal position.
+    is_over, reason, winner = game.check_game_over()
+    if is_over:
+        end_payload = game.end_game(reason, winner)
+        return jsonify({"ok": True, "fen": game.get_fen(), "move_uci": uci, "engine_reply": None, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')})
     # Optionally make engine reply
     reply = None
     if data.get("engine_reply"):
         # read optional engine params
         try:
-            engine_time = float(data.get("engine_time", 0.1))
+            engine_time = min(float(data.get("engine_time", 0.1)), MAX_ENGINE_TIME)
         except Exception:
             engine_time = 0.1
-        # Parse engine parameters: separate numeric skill and persona string
         engine_persona = data.get('engine_persona')
-        # If client selected an `opponent_preset`, map it to canonical engine params
-        # from `BOT_PRESETS`. Preserve explicit engine_persona/engine_skill if
-        # provided by the caller; otherwise use preset defaults.
-        opponent_preset = data.get('opponent_preset')
-        if opponent_preset:
-            try:
-                preset = BOT_PRESETS.get(opponent_preset.lower())
-                if preset:
-                    if engine_persona is None:
-                        engine_persona = preset.get('engine_persona')
-                    # only set engine_time/skill when not explicitly provided
-                    if 'engine_time' in preset and data.get('engine_time') is None:
-                        try:
-                            engine_time = float(preset.get('engine_time', engine_time))
-                        except Exception:
-                            pass
-                    if 'engine_skill' in preset and data.get('engine_skill') is None:
-                        try:
-                            engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
-                        except Exception:
-                            pass
-            except Exception:
-                pass
         # validate persona name if provided
         try:
             from app.engine_personas import is_persona_allowed
@@ -100,6 +87,7 @@ def api_move():
             engine_skill = int(engine_skill) if engine_skill is not None else None
         except Exception:
             engine_skill = None
+        engine_strength = data.get('engine_strength')
         # optional RNG seed for deterministic sampling
         engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
         if engine_rng_seed is not None:
@@ -107,21 +95,7 @@ def api_move():
                 engine_rng_seed = int(engine_rng_seed)
             except Exception:
                 pass
-        # If a persona is provided, use internal default engine time for persona-driven replies
-        if engine_persona:
-            try:
-                engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
-            except Exception:
-                pass
-        # Log debug to file for diagnosis
-        try:
-            root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-            dbg = os.path.join(root, 'engine_debug.log')
-            with open(dbg, 'a', encoding='utf-8') as fh:
-                fh.write(f"[MOVE] {datetime.datetime.now().isoformat()} uci={uci} fen={game.get_fen()} time={engine_time} engine_skill={engine_skill} engine_persona={engine_persona}\n")
-        except Exception:
-            pass
-        reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
+        reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
         # FIX: if engine returned None but made a move (engine pushed to board), recover it
         if reply is None:
             try:
@@ -133,11 +107,6 @@ def api_move():
                             pass
             except Exception:
                 pass
-        try:
-            with open(dbg, 'a', encoding='utf-8') as fh:
-                fh.write(f"[MOVE-RESULT] {datetime.datetime.now().isoformat()} reply={repr(reply)} fen={game.get_fen()} engine_skill={engine_skill} engine_persona={engine_persona} rng_seed={engine_rng_seed}\n")
-        except Exception:
-            pass
     # After applying player move (and optional engine reply), check game-over state
     is_over, reason, winner = game.check_game_over()
     if is_over:
@@ -169,8 +138,8 @@ def api_set_fen():
         # Validate and set the board to provided FEN
         game.board = chess.Board(fen)
         return jsonify({"ok": True, "fen": game.get_fen()})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid FEN"}), 400
 
 
 @api_bp.route("/api/analyze", methods=["POST"])
@@ -181,7 +150,7 @@ def api_analyze():
         return jsonify({'ok': False, 'error': 'missing_fen'}), 400
     try:
         try:
-            time_limit = float(data.get('time_limit', 0.5))
+            time_limit = min(float(data.get('time_limit', 0.5)), MAX_ENGINE_TIME)
         except Exception:
             time_limit = 0.5
         # Call the ChessGame analyze helper
@@ -194,15 +163,19 @@ def api_analyze():
         else:
             out['result'] = res
         return jsonify(out)
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'analysis failed'}), 500
 
 @api_bp.route("/api/engine_move", methods=["POST"])
 def api_engine_move():
+    # Early check: if the game is already over, don't attempt an engine move
+    is_over, reason, winner = game.check_game_over()
+    if is_over:
+        end_payload = game.end_game(reason, winner)
+        return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": None, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')})
     data = request.get_json() or {}
     try:
-        engine_time = float(data.get("engine_time", 0.1))
+        engine_time = min(float(data.get("engine_time", 0.1)), MAX_ENGINE_TIME)
     except Exception:
         engine_time = 0.1
     try:
@@ -212,26 +185,7 @@ def api_engine_move():
         engine_skill = None
 
     engine_persona = data.get('engine_persona')
-    # Map opponent preset to canonical engine params when provided
-    opponent_preset = data.get('opponent_preset')
-    if opponent_preset:
-        try:
-            preset = BOT_PRESETS.get(opponent_preset.lower())
-            if preset:
-                if engine_persona is None:
-                    engine_persona = preset.get('engine_persona')
-                if data.get('engine_time') is None and 'engine_time' in preset:
-                    try:
-                        engine_time = float(preset.get('engine_time', engine_time))
-                    except Exception:
-                        pass
-                if data.get('engine_skill') is None and 'engine_skill' in preset:
-                    try:
-                        engine_skill = int(preset.get('engine_skill')) if preset.get('engine_skill') is not None else None
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+    engine_strength = data.get('engine_strength')
     try:
         from app.engine_personas import is_persona_allowed
         if engine_persona and not is_persona_allowed(engine_persona):
@@ -244,24 +198,7 @@ def api_engine_move():
             engine_rng_seed = int(engine_rng_seed)
         except Exception:
             pass
-    # If a persona is provided, use internal default engine time for persona-driven
-    # move selection. This avoids exposing the previous fast/deep UI which behaved
-    # inconsistently when personas used MultiPV sampling.
-    if engine_persona:
-        try:
-            engine_time = float(PERSONA_DEFAULT_ENGINE_TIME)
-        except Exception:
-            pass
-
-    # Log debug to file
-    try:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        dbg = os.path.join(root, 'engine_debug.log')
-        with open(dbg, 'a', encoding='utf-8') as fh:
-            fh.write(f"[ENGINE_MOVE] {datetime.datetime.now().isoformat()} fen={game.get_fen()} time={engine_time} engine_skill={engine_skill} engine_persona={engine_persona}\n")
-    except Exception:
-        pass
-    reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
+    reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
     # FIX: if engine returned None but made a move, recover it from the board move stack
     if reply is None:
         try:
@@ -273,11 +210,6 @@ def api_engine_move():
                         pass
         except Exception:
             pass
-    try:
-        with open(dbg, 'a', encoding='utf-8') as fh:
-            fh.write(f"[ENGINE_MOVE_RESULT] {datetime.datetime.now().isoformat()} reply={repr(reply)} fen={game.get_fen()} engine_skill={engine_skill} engine_persona={engine_persona} rng_seed={engine_rng_seed}\n")
-    except Exception:
-        pass
     # Check for terminal state after engine move
     is_over, reason, winner = game.check_game_over()
     if is_over:
@@ -311,8 +243,8 @@ def api_resign():
         # Do not reset here; caller may inspect final board before reset
         resp = {"ok": True, "resign": True, "resigned_side": resigned, "winner": winner, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')}
         return jsonify(resp)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        return jsonify({"ok": False, "error": "resign failed"}), 500
 
 
 def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_name='Opponent', pgn_text=None):
@@ -367,28 +299,6 @@ def save_pgn_to_file(result='*', user_side=None, user_name='Player', opponent_na
     return fname
 
 
-@api_bp.route("/api/sync_main_js", methods=["POST"])
-def api_sync_main_js():
-    """Copy `static/main.js` to project root `main.js.txt` atomically and return status."""
-    try:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        static_path = os.path.join(root, 'static', 'main.js')
-        out_path = os.path.join(root, 'main.js.txt')
-        tmp_path = out_path + '.tmp'
-
-        # Read and write in binary to preserve exact file contents
-        with open(static_path, 'rb') as fh:
-            data = fh.read()
-
-        # Write to a temp file then replace to ensure atomicity
-        with open(tmp_path, 'wb') as fh:
-            fh.write(data)
-        os.replace(tmp_path, out_path)
-        return jsonify({"ok": True, "path": 'main.js.txt'})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
 @api_bp.route("/api/save_pgn", methods=["POST"])
 def api_save_pgn():
     data = request.get_json() or {}
@@ -400,117 +310,8 @@ def api_save_pgn():
     try:
         fname = save_pgn_to_file(result=result, user_side=user_side, user_name=user_name, opponent_name=opponent_name, pgn_text=pgn_text)
         return jsonify({"ok": True, "pgn_file": fname})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-# NOTE: `/api/ack_game_over` intentionally removed per v1 decision -
-# client uses resp.pgn for download and calls `/api/reset` for New Game.
-
-
-@api_bp.route("/api/engine_move_debug", methods=["POST"])
-def api_engine_move_debug():
-    """Diagnostic endpoint: call engine_move and return detailed debug info in the JSON response."""
-    data = request.get_json() or {}
-    try:
-        engine_time = float(data.get("engine_time", 0.1))
     except Exception:
-        engine_time = 0.1
-    engine_persona = data.get('engine_persona')
-    try:
-        from app.engine_personas import is_persona_allowed
-        if engine_persona and not is_persona_allowed(engine_persona):
-            return jsonify({"ok": False, "error": "unknown_persona"}), 400
-    except Exception:
-        pass
-    try:
-        engine_skill = data.get("engine_skill")
-        engine_skill = int(engine_skill) if engine_skill is not None else None
-    except Exception:
-        engine_skill = None
-    engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
-    if engine_rng_seed is not None:
-        try:
-            engine_rng_seed = int(engine_rng_seed)
-        except Exception:
-            pass
-
-    pre_fen = game.get_fen()
-    dbg = None
-    err = None
-    reply = None
-    try:
-        reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, rng_seed=engine_rng_seed)
-    except Exception as e:
-        err = str(e)
-        err_tb = traceback.format_exc()
-        # include traceback in response where reasonable
-        return jsonify({"ok": False, "error": err, "traceback": err_tb, "pre_fen": pre_fen}), 500
-
-    # FIX: if engine returned None but made a move, recover it from the board move stack
-    if reply is None:
-        try:
-            if hasattr(game, 'board') and getattr(game.board, 'move_stack', None):
-                if len(game.board.move_stack) > 0:
-                    try:
-                        reply = game.board.move_stack[-1].uci()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-    post_fen = game.get_fen()
-    out = {"ok": True, "pre_fen": pre_fen, "post_fen": post_fen, "reply": reply, "engine_skill": engine_skill, "engine_persona": engine_persona}
-    # If engine returned no move, try a one-off engine invocation to compare behavior
-    if reply is None:
-        try:
-            one_off = None
-            tmp_msg = None
-            try:
-                eng = chess.engine.SimpleEngine.popen_uci(game.engine_path)
-                # try persona configure
-                try:
-                    from app.engine_personas import configure_persona, pick_move_with_multipv, set_rng_seed
-                    cfg = configure_persona(eng, engine_persona)
-                    # apply rng seed for the one-off sampling if provided
-                    try:
-                        set_rng_seed(engine_rng_seed)
-                    except Exception:
-                        pass
-                    mv_res = pick_move_with_multipv(
-                        eng,
-                        game.board,
-                        depth=cfg.get('depth'),
-                        temperature=cfg.get('pick_temperature', 0.0),
-                        multipv=cfg.get('multipv', 10),
-                        mercy=cfg.get('mercy'),
-                        persona=engine_persona,
-                    )
-                    if mv_res:
-                        mv, sel_cp, best_cp, is_blunder = mv_res
-                    else:
-                        mv = None
-                    one_off = mv.uci() if mv is not None else None
-                except Exception:
-                    # fallback to timed play
-                    r = eng.play(game.board, chess.engine.Limit(time=engine_time))
-                    one_off = r.move.uci() if r and getattr(r,'move',None) else None
-                eng.quit()
-                tmp_msg = 'one-off engine call succeeded'
-            except Exception as e:
-                tmp_msg = f'one-off engine call failed: {e}'
-            out['one_off'] = one_off
-            out['one_off_msg'] = tmp_msg
-        except Exception:
-            out['one_off_msg'] = 'one-off investigation failed'
-
-    return jsonify(out)
-
-
-@api_bp.route('/test_personas', methods=['GET'])
-@v1_guard
-def test_personas_page():
-    return render_template('test_personas.html')
+        return jsonify({"ok": False, "error": "save failed"}), 500
 
 
 @api_bp.route('/api/simulate', methods=['POST'])
@@ -525,7 +326,7 @@ def api_simulate():
     except Exception:
         engine_time = 0.1
     try:
-        max_moves = int(data.get('max_moves', 200))
+        max_moves = min(int(data.get('max_moves', 200)), MAX_SIM_MOVES)
     except Exception:
         max_moves = 200
     rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
@@ -544,8 +345,8 @@ def api_simulate():
     try:
         from app.chess_core import ChessGame
         sim = ChessGame()
-    except Exception as e:
-        return jsonify({'ok': False, 'error': f'failed_to_create_game: {e}'}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
     move_list = []
     reason = 'max_moves_reached'
@@ -621,8 +422,8 @@ def api_personas_list():
         for p in list_personas():
             data[p] = get_persona_config(p)
         return jsonify({'ok': True, 'personas': data})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/persona/<name>', methods=['GET', 'POST'])
@@ -645,8 +446,8 @@ def api_persona(name):
             if not ok:
                 return jsonify({'ok': False, 'error': 'failed_to_set'}), 400
             return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/persona/<name>/reset', methods=['POST'])
@@ -658,8 +459,8 @@ def api_persona_reset(name):
         if not ok:
             return jsonify({'ok': False, 'error': 'unknown_persona'}), 400
         return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/personas/reset_all', methods=['POST'])
@@ -671,8 +472,8 @@ def api_personas_reset_all():
         if not ok:
             return jsonify({'ok': False, 'error': 'failed_to_reset'}), 500
         return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/personas/export', methods=['GET'])
@@ -682,8 +483,8 @@ def api_personas_export():
         from app.engine_personas import export_persona_overrides
         data = export_persona_overrides()
         return jsonify({'ok': True, 'overrides': data})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/personas/import', methods=['POST'])
@@ -707,8 +508,8 @@ def api_personas_import():
         if not ok:
             return jsonify({'ok': False, 'error': 'save_failed'}), 500
         return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/engine_info', methods=['GET'])
@@ -720,8 +521,8 @@ def api_engine_info():
         engine_ok = bool(cg.engine_path)
         data = {'engine_path': cg.engine_path or None, 'engine_detected': engine_ok, 'default_engine_time': 0.05, 'multipv_cap': 16}
         return jsonify({'ok': True, 'engine': data})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'server error'}), 500
 
 
 @api_bp.route('/api/simulate_batch', methods=['POST'])
@@ -736,11 +537,11 @@ def api_simulate_batch():
     except Exception:
         engine_time = 0.05
     try:
-        count = int(data.get('count', 1))
+        count = min(int(data.get('count', 1)), MAX_BATCH_COUNT)
     except Exception:
         count = 1
     try:
-        max_moves = int(data.get('max_moves', 400))
+        max_moves = min(int(data.get('max_moves', 400)), MAX_SIM_MOVES)
     except Exception:
         max_moves = 400
     seed = data.get('seed') if 'seed' in data else None
@@ -767,8 +568,8 @@ def api_simulate_batch():
         try:
             from app.chess_core import ChessGame
             sim = ChessGame()
-        except Exception as e:
-            return jsonify({'ok': False, 'error': f'failed_to_create_game: {e}'}), 500
+        except Exception:
+            return jsonify({'ok': False, 'error': 'server error'}), 500
 
         reason = 'max_moves_reached'
         seed_used = None
@@ -858,108 +659,74 @@ def api_simulate_batch():
     return jsonify({'ok': True, 'count': len(saved), 'files': saved, 'csv': os.path.basename(csv_path) if csv_path else None, 'batch_pgn': combined_name})
 
 
-@api_bp.route('/api/open_engine_debug', methods=['GET'])
-def api_open_engine_debug():
+# ---------------------------------------------------------------------------
+# Bot Config Editor API (no v1_guard — always available)
+# ---------------------------------------------------------------------------
+
+@api_bp.route('/api/editor/config', methods=['GET'])
+def api_editor_config():
+    """Return full bot_config.json contents."""
     try:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        dbg = os.path.join(root, 'engine_debug.log')
-        if not os.path.exists(dbg):
-            return jsonify({'ok': True, 'output': []})
-        with open(dbg, 'r', encoding='utf-8', errors='ignore') as fh:
-            lines = fh.read().splitlines()
-        tail = lines[-50:]
-        return jsonify({'ok': True, 'output': tail})
+        from app.engine_personas import read_bot_config
+        data = read_bot_config()
+        return jsonify({'ok': True, 'config': data})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-@api_bp.route('/api/open_pgn_notepad', methods=['POST'])
-@v1_guard
-def api_open_pgn_notepad():
+@api_bp.route('/api/editor/save', methods=['POST'])
+def api_editor_save():
+    """Save a single field change to bot_config.json with undo history."""
     data = request.get_json() or {}
-    fname = data.get('filename')
-    if not fname:
-        return jsonify({'ok': False, 'error': 'missing_filename'}), 400
+    section = data.get('section')
+    profile = data.get('profile')
+    field = data.get('field')
+    value = data.get('value')
+
+    if not section or not profile or not field:
+        return jsonify({'ok': False, 'error': 'missing required fields'}), 400
+    if section not in ('strength_profiles', 'style_profiles'):
+        return jsonify({'ok': False, 'error': 'invalid section'}), 400
+
     try:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        path = os.path.join(root, 'games', 'tests', fname)
-        if not os.path.exists(path):
-            return jsonify({'ok': False, 'error': 'file_not_found'}), 404
-        # Only attempt to open on Windows using notepad
-        if os.name == 'nt':
-            try:
-                import subprocess
-                subprocess.Popen(['notepad.exe', path])
-                return jsonify({'ok': True})
-            except Exception as e:
-                return jsonify({'ok': False, 'error': str(e)}), 500
-        else:
-            return jsonify({'ok': False, 'error': 'not_supported_on_os'}), 400
+        from app.engine_personas import write_bot_config_field
+        ok, err = write_bot_config_field(section, profile, field, value)
+        if not ok:
+            return jsonify({'ok': False, 'error': err}), 400
+        return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-# Dev-only helper: inspect and tweak in-memory bot presets during development.
-# Enabled unless running in v1-mode with DEBUG disabled.
-@api_bp.route('/api/dev/presets', methods=['GET', 'POST'])
-def api_dev_presets():
-    # Disable when v1 mode is active and not in debug
-    try:
-        if V1_MODE and not current_app.debug:
-            return jsonify({'ok': False, 'error': 'disabled_in_v1'}), 404
-    except Exception:
-        pass
-
-    # GET: return current presets
-    if request.method == 'GET':
-        try:
-            # shallow copy to avoid accidental mutation
-            data = {k: dict(v) for k, v in BOT_PRESETS.items()}
-            return jsonify({'ok': True, 'presets': data})
-        except Exception as e:
-            return jsonify({'ok': False, 'error': str(e)}), 500
-
-    # POST: update an existing preset in-memory for this dev session
+@api_bp.route('/api/editor/undo', methods=['POST'])
+def api_editor_undo():
+    """Undo the last change for a profile."""
     data = request.get_json() or {}
-    name = data.get('name')
-    preset = data.get('preset')
-    if not name or not isinstance(preset, dict):
-        return jsonify({'ok': False, 'error': 'missing_name_or_preset'}), 400
-    key = str(name).lower()
-    if key not in BOT_PRESETS:
-        return jsonify({'ok': False, 'error': 'unknown_preset'}), 400
-    try:
-        # Validate fields we accept: display_name, engine_persona, engine_skill, engine_time
-        upd = {}
-        if 'display_name' in preset:
-            upd['display_name'] = str(preset.get('display_name') or '')
-        if 'engine_persona' in preset:
-            val = preset.get('engine_persona')
-            upd['engine_persona'] = None if val is None else str(val)
-        if 'engine_skill' in preset:
-            v = preset.get('engine_skill')
-            upd['engine_skill'] = None if v is None else int(v)
-        if 'engine_time' in preset:
-            try:
-                upd['engine_time'] = float(preset.get('engine_time'))
-            except Exception:
-                upd['engine_time'] = BOT_PRESETS[key].get('engine_time')
+    section = data.get('section')
+    profile = data.get('profile')
 
-        BOT_PRESETS[key].update(upd)
-        return jsonify({'ok': True, 'preset': BOT_PRESETS[key]})
+    if not section or not profile:
+        return jsonify({'ok': False, 'error': 'missing required fields'}), 400
+
+    try:
+        from app.engine_personas import undo_last_change
+        ok, result = undo_last_change(section, profile)
+        if not ok:
+            return jsonify({'ok': False, 'error': result}), 400
+        return jsonify({'ok': True, 'undone': result})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-@api_bp.route('/api/dev/game_status', methods=['GET'])
-def api_dev_game_status():
-    # Dev-only: expose simple lifecycle fields. Disabled when v1 mode active and not debug.
+
+@api_bp.route('/api/editor/history/<section>/<profile>', methods=['GET'])
+def api_editor_history(section, profile):
+    """Get undo stack for a profile."""
+    if section not in ('strength_profiles', 'style_profiles'):
+        return jsonify({'ok': False, 'error': 'invalid section'}), 400
     try:
-        if V1_MODE and not current_app.debug:
-            return jsonify({'ok': False, 'error': 'disabled_in_v1'}), 404
-    except Exception:
-        pass
-    try:
-        return jsonify({'ok': True, 'status': getattr(game, 'status', None), 'end_reason': getattr(game, 'end_reason', None), 'result': getattr(game, 'result', None)})
+        from app.engine_personas import get_change_history
+        stack = get_change_history(section, profile)
+        return jsonify({'ok': True, 'history': stack})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
@@ -983,16 +750,6 @@ def api_download_pgn():
         return jsonify({'ok': False, 'error': 'file_not_found'}), 404
     try:
         return send_file(found, as_attachment=True, download_name=safe)
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-@api_bp.route('/api/feedback', methods=['POST'])
-def api_feedback():
-    """Accept feedback submissions and append to a single feedback.txt file.
-
-    Expected JSON payload: {name: str, feedback: str, ts: ISOstring}
-    """
-    # Deprecated: feedback now handled by /submit-feedback in server.py
-    return jsonify({'ok': False, 'error': 'deprecated_endpoint'}), 404
+    except Exception:
+        return jsonify({'ok': False, 'error': 'download failed'}), 500
 
