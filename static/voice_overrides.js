@@ -47,8 +47,6 @@
     draw: "stalemate.mp3",
     resignYou: "resigned.mp3",
     resignOpponent: "resigned.mp3",
-    // optional extras (ignored if missing)
-    checking: "checking.mp3",
     checkmate: "checkmate.mp3"
   };
 
