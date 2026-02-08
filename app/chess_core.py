@@ -7,6 +7,63 @@ import datetime
 from app.engine_personas import pick_move_with_multipv, set_rng_seed, assemble_persona_config
 
 
+def _validate_engine_path(path):
+    """Validate that the engine path is safe to execute.
+
+    Returns True if the path:
+    - Is not empty
+    - Exists on disk
+    - Is a file (not a directory)
+    - Is within an allowed directory (project stockfish/ or common system paths)
+    """
+    if not path:
+        return False
+
+    # Normalize and resolve the path
+    try:
+        resolved = os.path.realpath(path)
+    except Exception:
+        return False
+
+    # Must exist and be a file
+    if not os.path.isfile(resolved):
+        return False
+
+    # Allowed directories (project stockfish folder + common system locations)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    allowed_dirs = [
+        os.path.join(project_root, 'stockfish'),
+        os.path.join(project_root, 'vendor'),
+        '/usr/bin',
+        '/usr/local/bin',
+        '/usr/games',
+    ]
+
+    # Check if resolved path is within an allowed directory
+    for allowed in allowed_dirs:
+        try:
+            allowed_resolved = os.path.realpath(allowed)
+            if resolved.startswith(allowed_resolved + os.sep) or resolved == allowed_resolved:
+                return True
+        except Exception:
+            continue
+
+    # On Windows, also allow paths within Program Files
+    if platform.system() == "Windows":
+        windows_allowed = [
+            os.environ.get('ProgramFiles', 'C:\\Program Files'),
+            os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'),
+        ]
+        for allowed in windows_allowed:
+            try:
+                if resolved.startswith(os.path.realpath(allowed) + os.sep):
+                    return True
+            except Exception:
+                continue
+
+    return False
+
+
 def derive_end_state(board: chess.Board):
     """Return (result_str, termination_str) derived from the given board outcome.
 
@@ -361,7 +418,7 @@ class ChessGame:
         except Exception:
             pass
 
-        if not self.engine_path:
+        if not self.engine_path or not _validate_engine_path(self.engine_path):
             return None
         # Use a fresh engine instance per request to avoid stale engine state.
         try:
@@ -430,7 +487,10 @@ class ChessGame:
                         enforce_no_blunder=enforce_no_blunder,
                         blunder_threshold=blunder_thr,
                         blunder_cap=cfg.get('blunder_cap'),
-                        persona=engine_persona,
+                        curve=cfg.get('curve'),
+                        endgame_depth_delta=cfg.get('endgame_depth_delta'),
+                        endgame_temp_delta=cfg.get('endgame_temp_delta'),
+                        pieces_threshold=cfg.get('pieces_threshold'),
                     )
                     if mv_res:
                         mv, sel_cp, best_cp, is_blunder = mv_res
@@ -482,7 +542,7 @@ class ChessGame:
         """
         # Basic defaults
         result = {'score': None, 'best_move': None, 'continuation': []}
-        if not self.engine_path:
+        if not self.engine_path or not _validate_engine_path(self.engine_path):
             return result
 
         try:

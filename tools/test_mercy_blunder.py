@@ -6,7 +6,7 @@ if proj_root not in sys.path:
 
 import chess
 import chess.engine
-from app.engine_personas import set_rng_seed, pick_move_with_multipv, configure_persona
+from app.engine_personas import set_rng_seed, pick_move_with_multipv
 from app.chess_core import ChessGame
 
 # Fake score object to mimic python-chess Score behavior used by pick_move_with_multipv

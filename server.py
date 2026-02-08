@@ -57,6 +57,12 @@ def create_app():
             version = '1'
         return render_template("index.html", main_js_version=version, v1_mode=api_mod.V1_MODE, debug_mode=app.debug)
 
+    @app.get("/editor")
+    def editor():
+        if api_mod.V1_MODE:
+            return "Not available", 404
+        return render_template("editor.html")
+
     return app
 
 

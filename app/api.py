@@ -21,6 +21,17 @@ MAX_BATCH_COUNT = 20        # max games in a batch simulation
 
 from functools import wraps
 
+
+def _recover_last_move(game_obj):
+    """If engine_move returned None but pushed a move, recover it from move_stack."""
+    try:
+        if hasattr(game_obj, 'board') and game_obj.board.move_stack:
+            return game_obj.board.move_stack[-1].uci()
+    except Exception:
+        pass
+    return None
+
+
 def v1_guard(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -96,17 +107,8 @@ def api_move():
             except Exception:
                 pass
         reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
-        # FIX: if engine returned None but made a move (engine pushed to board), recover it
         if reply is None:
-            try:
-                if hasattr(game, 'board') and getattr(game.board, 'move_stack', None):
-                    if len(game.board.move_stack) > 0:
-                        try:
-                            reply = game.board.move_stack[-1].uci()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            reply = _recover_last_move(game)
     # After applying player move (and optional engine reply), check game-over state
     is_over, reason, winner = game.check_game_over()
     if is_over:
@@ -134,6 +136,9 @@ def api_set_fen():
     fen = data.get('fen')
     if not fen:
         return jsonify({"ok": False, "error": "missing_fen"}), 400
+    # Basic length sanity check (valid FENs are typically under 100 chars)
+    if not isinstance(fen, str) or len(fen) > 200:
+        return jsonify({"ok": False, "error": "invalid FEN"}), 400
     try:
         # Validate and set the board to provided FEN
         game.board = chess.Board(fen)
@@ -199,17 +204,8 @@ def api_engine_move():
         except Exception:
             pass
     reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
-    # FIX: if engine returned None but made a move, recover it from the board move stack
     if reply is None:
-        try:
-            if hasattr(game, 'board') and getattr(game.board, 'move_stack', None):
-                if len(game.board.move_stack) > 0:
-                    try:
-                        reply = game.board.move_stack[-1].uci()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        reply = _recover_last_move(game)
     # Check for terminal state after engine move
     is_over, reason, winner = game.check_game_over()
     if is_over:
@@ -657,6 +653,78 @@ def api_simulate_batch():
         combined_name = None
 
     return jsonify({'ok': True, 'count': len(saved), 'files': saved, 'csv': os.path.basename(csv_path) if csv_path else None, 'batch_pgn': combined_name})
+
+
+# ---------------------------------------------------------------------------
+# Bot Config Editor API (no v1_guard — always available)
+# ---------------------------------------------------------------------------
+
+@api_bp.route('/api/editor/config', methods=['GET'])
+def api_editor_config():
+    """Return full bot_config.json contents."""
+    try:
+        from app.engine_personas import read_bot_config
+        data = read_bot_config()
+        return jsonify({'ok': True, 'config': data})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'failed to load config'}), 500
+
+
+@api_bp.route('/api/editor/save', methods=['POST'])
+def api_editor_save():
+    """Save a single field change to bot_config.json with undo history."""
+    data = request.get_json() or {}
+    section = data.get('section')
+    profile = data.get('profile')
+    field = data.get('field')
+    value = data.get('value')
+
+    if not section or not profile or not field:
+        return jsonify({'ok': False, 'error': 'missing required fields'}), 400
+    if section not in ('strength_profiles', 'style_profiles'):
+        return jsonify({'ok': False, 'error': 'invalid section'}), 400
+
+    try:
+        from app.engine_personas import write_bot_config_field
+        ok, err = write_bot_config_field(section, profile, field, value)
+        if not ok:
+            return jsonify({'ok': False, 'error': err}), 400
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'failed to save config'}), 500
+
+
+@api_bp.route('/api/editor/undo', methods=['POST'])
+def api_editor_undo():
+    """Undo the last change for a profile."""
+    data = request.get_json() or {}
+    section = data.get('section')
+    profile = data.get('profile')
+
+    if not section or not profile:
+        return jsonify({'ok': False, 'error': 'missing required fields'}), 400
+
+    try:
+        from app.engine_personas import undo_last_change
+        ok, result = undo_last_change(section, profile)
+        if not ok:
+            return jsonify({'ok': False, 'error': result}), 400
+        return jsonify({'ok': True, 'undone': result})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'failed to undo'}), 500
+
+
+@api_bp.route('/api/editor/history/<section>/<profile>', methods=['GET'])
+def api_editor_history(section, profile):
+    """Get undo stack for a profile."""
+    if section not in ('strength_profiles', 'style_profiles'):
+        return jsonify({'ok': False, 'error': 'invalid section'}), 400
+    try:
+        from app.engine_personas import get_change_history
+        stack = get_change_history(section, profile)
+        return jsonify({'ok': True, 'history': stack})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'failed to load history'}), 500
 
 
 @api_bp.route('/api/download_pgn', methods=['GET'])

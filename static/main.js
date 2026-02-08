@@ -305,11 +305,13 @@ function attemptMove(from, to) {
  */
 
 // STRENGTH configurations (calculation power)
+// NOTE: These are display-only hints for the UI. Actual gameplay values come from
+// bot_config.json on the backend. Keep these synced with bot_config.json!
 const STRENGTH_CONFIGS = {
   'casual': {
-    skill: 2,
-    time: 0.25,
-    elo: 600,
+    skill: 0,       // synced with bot_config.json
+    time: 0.15,     // synced with bot_config.json
+    elo: 400,       // synced with bot_config.json
     hints: Infinity,
     label: 'Casual',
     description: 'Casual level calculation'
@@ -1066,26 +1068,44 @@ function findFirstEmptySquare(posObj) {
 // Copy a FEN string to the clipboard with a safe fallback
 async function copyFenToClipboard(fen) {
   if (!fen) return false;
+
+  // Method 1: Modern Clipboard API (requires secure context: HTTPS or localhost)
   try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
       await navigator.clipboard.writeText(fen);
+      console.log('Clipboard API succeeded');
       return true;
     }
   } catch (e) {
-    console.warn('clipboard API failed', e);
+    console.warn('Clipboard API failed (likely non-HTTPS):', e.message || e);
   }
+
+  // Method 2: Legacy execCommand fallback
   try {
     const ta = document.createElement('textarea');
     ta.value = fen;
+    // Make it invisible but still in the DOM
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    ta.style.opacity = '0';
     document.body.appendChild(ta);
+    ta.focus();
     ta.select();
+    ta.setSelectionRange(0, ta.value.length); // iOS compatibility
     const ok = document.execCommand('copy');
     document.body.removeChild(ta);
-    return !!ok;
+    if (ok) {
+      console.log('execCommand fallback succeeded');
+      return true;
+    }
   } catch (e) {
-    console.warn('clipboard fallback failed', e);
-    return false;
+    console.warn('execCommand fallback failed:', e.message || e);
   }
+
+  // Both methods failed
+  console.warn('All clipboard methods failed - FEN:', fen);
+  return false;
 }
 
 
@@ -1347,7 +1367,7 @@ async function maybeTriggerAutoSave() {
     // Do not auto-generate PGN here; the server is now authoritative and will
     // return a final PGN inside the move/engine responses when the game ends.
     try {
-      try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+      AppState.setPlayEngine(false);
       gameOver = true;
       setStatus('Game ended: ' + resultText);
       const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
@@ -1802,7 +1822,7 @@ function submitUci(uci, prevFen) {
         
         // Update result indicator and switch to RESULT UI (voice will be triggered in setUIState)
         const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
-        try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+        AppState.setPlayEngine(false);
         setUIState('RESULT', { result: resp.result || '', reason: resp.reason || '', pgn: resp.pgn || '' });
         try { autoSaveGameToServer(resp.pgn, resp.result); } catch (e) { console.error('Operation failed:', e); }
       }
@@ -2085,7 +2105,7 @@ window.addEventListener('load', async () => {
         const freeToggle = document.getElementById('free-board-toggle');
         if (name === 'free') {
           if (!freeBoardMode) {
-            try { if (playEngine) setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+            if (playEngine) AppState.setPlayEngine(false);
             // remember current game position if present
             try { savedGameFenBeforeFree = game ? game.fen() : null; } catch (e) { savedGameFenBeforeFree = null; }
             freeBoardMode = true;
@@ -2355,7 +2375,7 @@ window.addEventListener('load', async () => {
         freeBoardMode = !!freeToggle.checked;
         // disable game/engine mode when entering free-board mode
         if (freeBoardMode) {
-          try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+          AppState.setPlayEngine(false);
         }
         const pal = document.getElementById('piece-palette');
         if (pal) pal.style.display = freeBoardMode ? 'flex' : 'none';
@@ -2468,8 +2488,30 @@ window.addEventListener('load', async () => {
 
           // Start engine-enabled play from this position without resetting server position
           try {
-            setPlayEngine(true, { keepPosition: true });
+            AppState.setPlayEngine(true);
           } catch (e) { console.error('Operation failed:', e); }
+          try { setUIState('IN_GAME'); } catch (e) {}
+
+          // If playing as black from custom position, engine (White) plays first
+          if (playerSelect && playerSelect.value === 'black') {
+            try {
+              const r2 = await postEngineMove();
+              if (r2 && r2.fen) {
+                setFen(r2.fen, true);
+                try { renderMoveList(); } catch (e) {}
+                try { renderCapturedTrays(); } catch (e) {}
+                if (r2.game_over) {
+                  gameOver = true;
+                  lastFinalPgn = r2.pgn || null;
+                  AppState.setPlayEngine(false);
+                  const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
+                  setStatus('Game ended: ' + resultText);
+                  setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
+                  return;
+                }
+              }
+            } catch (e) { console.error('Engine first move failed:', e); }
+          }
 
           setStatus('Game started from custom position');
         } catch (e) {
@@ -2525,6 +2567,20 @@ window.addEventListener('load', async () => {
       const persona = document.getElementById('engine-persona'); if (persona) persona.disabled = (state !== 'SETUP');
       const pcolor = document.getElementById('player-color'); if (pcolor) pcolor.disabled = (state !== 'SETUP');
       const opp = document.getElementById('engine-persona'); if (opp) opp.disabled = (state !== 'SETUP');
+    } catch (e) { console.error('Operation failed:', e); }
+
+    // Update play button text/class to match game state
+    try {
+      const pb = playBtn || document.getElementById('main-start-btn') || document.getElementById('play-engine-btn');
+      if (pb) {
+        if (state === 'IN_GAME') {
+          pb.textContent = 'End Game';
+          pb.classList.remove('play-start'); pb.classList.add('play-resign');
+        } else {
+          pb.textContent = 'Start Game';
+          pb.classList.remove('play-resign'); pb.classList.add('play-start');
+        }
+      }
     } catch (e) { console.error('Operation failed:', e); }
 
     // Show game-over modal when game ends
@@ -2722,7 +2778,7 @@ window.addEventListener('load', async () => {
         if (gameOverModal) gameOverModal.setAttribute('aria-hidden', 'true');
         
         // Reset game
-        try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+        AppState.setPlayEngine(false);
         gameOver = false;
         lastFinalPgn = null;
         try { setUIState('SETUP'); } catch (e) { console.error('Operation failed:', e); }
@@ -2772,7 +2828,7 @@ window.addEventListener('load', async () => {
     if (newGameBtn) {
       newGameBtn.addEventListener('click', async () => {
         // 1. Force Engine/Game Stop
-        try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+        AppState.setPlayEngine(false);
         gameOver = false;
         lastFinalPgn = null;
 
@@ -2904,7 +2960,7 @@ window.addEventListener('load', async () => {
       try { ChessSounds.playReset(); } catch (e) { console.warn('Sound playback failed', e); }
 
       // Stop engine and clear game state
-      try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+      AppState.setPlayEngine(false);
       gameOver = false;
       lastFinalPgn = null;
       autoPgnSaved = false;
@@ -2975,7 +3031,7 @@ window.addEventListener('load', async () => {
     const engineFlag = !!playEngine;
       const opponentName = (enginePersonaSelect && enginePersonaSelect.value) ? enginePersonaSelect.value : (engineFlag ? 'Engine' : 'Opponent');
     try {
-      try { setPlayEngine(false); } catch (e) { /* ignore if not initialized yet */ }
+      AppState.setPlayEngine(false);
 
       // include player name and opponent preset from UI when available
       const playerNameEl = document.getElementById('player-name');
@@ -3114,7 +3170,7 @@ window.addEventListener('load', async () => {
               if (r2.game_over) {
                 gameOver = true;
                 lastFinalPgn = r2.pgn || null;
-                try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+                AppState.setPlayEngine(false);
                 const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
                 setStatus('Game ended: ' + resultText);
                 const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
@@ -3147,7 +3203,7 @@ window.addEventListener('load', async () => {
                   if (r2.game_over) {
                       gameOver = true;
                       lastFinalPgn = r2.pgn || null;
-                      try { setPlayEngine(false); } catch (e) { console.error('Operation failed:', e); }
+                      AppState.setPlayEngine(false);
                       const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
                       setStatus('Game ended: ' + resultText);
                       const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
@@ -3241,9 +3297,40 @@ window.addEventListener('load', async () => {
     // 6. Switch UI to GAME Mode
     try { setUIState('IN_GAME'); } catch (e) { console.error('Operation failed:', e); }
 
+    // 6b. Reset server board and sync client
+    try {
+      const resetResp = await postReset();
+      if (resetResp && resetResp.fen) {
+        setFen(resetResp.fen, true);
+        try { clearCapturedTrays(); } catch (e) {}
+      }
+    } catch (e) { console.error('Board reset failed:', e); }
+
     // 7. Start the Engine/Server Game
-    try { setPlayEngine(true); } catch (e) { console.error('Operation failed:', e); }
-    
+    AppState.setPlayEngine(true);
+
+    // 7b. If playing as black, have engine (White) play first move
+    if (playerColor === 'black') {
+      try {
+        const r2 = await postEngineMove();
+        if (r2 && r2.fen) {
+          setFen(r2.fen, true);
+          try { renderMoveList(); } catch (e) {}
+          try { renderCapturedTrays(); } catch (e) {}
+          if (r2.game_over) {
+            gameOver = true;
+            lastFinalPgn = r2.pgn || null;
+            AppState.setPlayEngine(false);
+            const resultText = r2.reason ? `${r2.reason}  - ${r2.result}` : (r2.result || '');
+            setStatus('Game ended: ' + resultText);
+            const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
+            setUIState('RESULT', { result: r2.result || '', reason: r2.reason || '', pgn: r2.pgn || '' });
+            return;
+          }
+        }
+      } catch (e) { console.error('Engine first move failed:', e); }
+    }
+
     // 8. Play game start voice
     try { ChessVoice.sayGameStart(); } catch (e) { console.warn('Voice playback failed', e); }
 

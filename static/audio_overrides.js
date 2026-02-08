@@ -5,6 +5,16 @@
 
 (function () {
   // -----------------------------
+  // Disable browser TTS to avoid double-voice
+  // -----------------------------
+  try {
+    if (window.speechSynthesis) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+      try { window.speechSynthesis.speak = function () {}; } catch (e) {}
+    }
+  } catch (e) {}
+
+  // -----------------------------
   // Helpers
   // -----------------------------
   function safeAudio(url) {
@@ -94,19 +104,16 @@
   if (typeof window.ChessVoice !== "undefined") {
     const V = window.ChessVoice;
 
-    // Map phrase keys used by main.js to your actual filenames
+    // Map phrase keys used by main.js to actual filenames
     const voiceMap = {
       gameStart: "welcome.mp3",
-      check: "incheck.mp3",                 // main.js calls sayCheck() when a side is in check
+      check: "incheck.mp3",
       checkmateWin: "checkmatewinner.mp3",
       checkmateLose: "checkmateloss.mp3",
       draw: "stalemate.mp3",
       resignYou: "resigned.mp3",
-      resignOpponent: "resigned.mp3",
-
-      // Extra clips you have (not currently called by your main.js logic, but ready)
-      checking: "checking.mp3",
-      checkmate: "checkmate.mp3"
+      resignOpponent: "resigned.mp3"
+      // Note: checkmate.mp3 exists but isn't used (we use checkmateWin/checkmateLose instead)
     };
 
     // Preload voice clips
@@ -117,21 +124,19 @@
       try { voiceAudio[k] && voiceAudio[k].load(); } catch (e) {}
     });
 
-    // Override speak() to play mp3 instead of TTS
-    V.speak = function speak(phraseKey) {
+    // Completely replace the speak method - do NOT call TTS at all
+    V.speak = function (phraseKey) {
       if (!this.enabled) return;
-
       const a = voiceAudio[phraseKey];
       if (!a) {
-        // Fall back quietly: no voice is better than noisy console spam mid-game
+        console.log("Voice clip not found for:", phraseKey);
         return;
       }
-
       const delayMs = Number(this.delay || 0);
       setTimeout(() => playAudio(a, 1.0), delayMs);
     };
 
-    // Keep your existing helper methods (they call speak())
+    // Also replace all the helper methods to use our speak
     V.sayGameStart = function () { this.speak("gameStart"); };
     V.sayCheck = function () { this.speak("check"); };
     V.sayCheckmateWin = function () { this.speak("checkmateWin"); };
@@ -140,7 +145,7 @@
     V.sayResignYou = function () { this.speak("resignYou"); };
     V.sayResignOpponent = function () { this.speak("resignOpponent"); };
 
-    console.log("Audio overrides: Voice mp3 mode enabled");
+    console.log("Audio overrides: Voice MP3 mode ACTIVE (TTS disabled)");
   } else {
     console.warn("audio_overrides.js: ChessVoice not found (main.js must load first).");
   }
