@@ -1,9 +1,7 @@
 from flask import Blueprint, jsonify, request, send_file
 from app.chess_core import ChessGame
-from app.engine_personas import PERSONA_DEFAULT_ENGINE_TIME
 import os
 import datetime
-import csv
 import chess.pgn
 
 api_bp = Blueprint("api", __name__)
@@ -11,16 +9,8 @@ api_bp = Blueprint("api", __name__)
 # Single global game for scaffold; later replace with per-session or DB storage
 game = ChessGame()
 
-# Feature gate for v1: when True, hide Free Board / Study features and related endpoints
-V1_MODE = True
-
 # --- Security caps ---
 MAX_ENGINE_TIME = 5.0       # max seconds per engine think
-MAX_SIM_MOVES = 400         # max moves per simulation game
-MAX_BATCH_COUNT = 20        # max games in a batch simulation
-
-from functools import wraps
-
 
 def _recover_last_move(game_obj):
     """If engine_move returned None but pushed a move, recover it from move_stack."""
@@ -32,13 +22,6 @@ def _recover_last_move(game_obj):
     return None
 
 
-def v1_guard(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if V1_MODE:
-            return jsonify({'ok': False, 'error': 'disabled_in_v1'}), 404
-        return f(*args, **kwargs)
-    return wrapper
 
 
 def state_payload():
@@ -129,22 +112,6 @@ def api_reset():
         pass
     return jsonify(state_payload())
 
-
-@api_bp.route("/api/set_fen", methods=["POST"])
-def api_set_fen():
-    data = request.get_json() or {}
-    fen = data.get('fen')
-    if not fen:
-        return jsonify({"ok": False, "error": "missing_fen"}), 400
-    # Basic length sanity check (valid FENs are typically under 100 chars)
-    if not isinstance(fen, str) or len(fen) > 200:
-        return jsonify({"ok": False, "error": "invalid FEN"}), 400
-    try:
-        # Validate and set the board to provided FEN
-        game.board = chess.Board(fen)
-        return jsonify({"ok": True, "fen": game.get_fen()})
-    except Exception:
-        return jsonify({"ok": False, "error": "invalid FEN"}), 400
 
 
 @api_bp.route("/api/analyze", methods=["POST"])
@@ -310,353 +277,10 @@ def api_save_pgn():
         return jsonify({"ok": False, "error": "save failed"}), 500
 
 
-@api_bp.route('/api/simulate', methods=['POST'])
-@v1_guard
-def api_simulate():
-    """Run a headless simulation between two personas and return PGN + move list."""
-    data = request.get_json() or {}
-    white_persona = data.get('white_persona')
-    black_persona = data.get('black_persona')
-    try:
-        engine_time = float(data.get('engine_time', 0.1))
-    except Exception:
-        engine_time = 0.1
-    try:
-        max_moves = min(int(data.get('max_moves', 200)), MAX_SIM_MOVES)
-    except Exception:
-        max_moves = 200
-    rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
-
-    # Validate personas if helper available
-    try:
-        from app.engine_personas import is_persona_allowed
-        if white_persona and not is_persona_allowed(white_persona):
-            return jsonify({'ok': False, 'error': 'unknown_persona_white'}), 400
-        if black_persona and not is_persona_allowed(black_persona):
-            return jsonify({'ok': False, 'error': 'unknown_persona_black'}), 400
-    except Exception:
-        pass
-
-    # Run simulation on a fresh game instance
-    try:
-        from app.chess_core import ChessGame
-        sim = ChessGame()
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-    move_list = []
-    reason = 'max_moves_reached'
-    for i in range(max_moves):
-        if sim.board.is_game_over():
-            reason = 'game_over'
-            break
-        persona = white_persona if sim.board.turn == chess.WHITE else black_persona
-        seed = None
-        if rng_seed is not None:
-            try:
-                seed = int(rng_seed) + i
-            except Exception:
-                seed = rng_seed
-        # Use internal persona default engine time when a persona is provided
-        mv_time = engine_time
-        if persona:
-            try:
-                mv_time = float(PERSONA_DEFAULT_ENGINE_TIME)
-            except Exception:
-                pass
-        mv = sim.engine_move(limit=mv_time, engine_persona=persona, rng_seed=seed)
-        if not mv:
-            reason = 'engine_failed'
-            break
-        move_list.append(mv)
-
-    # Build PGN
-    try:
-        g = chess.pgn.Game()
-        g.headers['Event'] = 'Persona Simulation'
-        # Record selected personas as the player names in the PGN
-        g.headers['White'] = white_persona or 'White'
-        g.headers['Black'] = black_persona or 'Black'
-        g.headers['Result'] = sim.board.result() if sim.board.is_game_over() else '*'
-        node = g
-        for mv in sim.board.move_stack:
-            node = node.add_variation(mv)
-        exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
-        pgn_text = g.accept(exporter)
-    except Exception:
-        pgn_text = None
-
-    # Auto-save PGN to games/tests/ with a timestamped filename
-    saved_fname = None
-    try:
-        if pgn_text:
-            root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-            outdir = os.path.join(root, 'games', 'tests')
-            os.makedirs(outdir, exist_ok=True)
-            now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            wp = (white_persona or 'white')
-            bp = (black_persona or 'black')
-            safe_wp = str(wp).replace(' ', '_')
-            safe_bp = str(bp).replace(' ', '_')
-            fname = f'sim_{safe_wp}_vs_{safe_bp}_{now}.pgn'
-            path = os.path.join(outdir, fname)
-            with open(path, 'w', encoding='utf-8') as fh:
-                fh.write(pgn_text)
-            saved_fname = fname
-    except Exception:
-        saved_fname = None
-
-    return jsonify({'ok': True, 'moves': move_list, 'pgn': pgn_text, 'result': g.headers.get('Result'), 'reason': reason, 'saved_file': saved_fname})
-
-
-@api_bp.route('/api/personas', methods=['GET'])
-@v1_guard
-def api_personas_list():
-    try:
-        from app.engine_personas import list_personas, get_persona_config
-        data = {}
-        for p in list_personas():
-            data[p] = get_persona_config(p)
-        return jsonify({'ok': True, 'personas': data})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-
-@api_bp.route('/api/persona/<name>', methods=['GET', 'POST'])
-@v1_guard
-def api_persona(name):
-    try:
-        from app.engine_personas import get_persona_config, set_persona_override, validate_persona_override
-        if request.method == 'GET':
-            cfg = get_persona_config(name)
-            if cfg is None:
-                return jsonify({'ok': False, 'error': 'unknown_persona'}), 400
-            return jsonify({'ok': True, 'persona': name, 'config': cfg})
-        else:
-            data = request.get_json() or {}
-            # accept partial overrides but validate first
-            okv, err = validate_persona_override(name, data)
-            if not okv:
-                return jsonify({'ok': False, 'error': 'invalid_override', 'message': err}), 400
-            ok = set_persona_override(name, data)
-            if not ok:
-                return jsonify({'ok': False, 'error': 'failed_to_set'}), 400
-            return jsonify({'ok': True})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-
-@api_bp.route('/api/persona/<name>/reset', methods=['POST'])
-@v1_guard
-def api_persona_reset(name):
-    try:
-        from app.engine_personas import reset_persona
-        ok = reset_persona(name)
-        if not ok:
-            return jsonify({'ok': False, 'error': 'unknown_persona'}), 400
-        return jsonify({'ok': True})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-
-@api_bp.route('/api/personas/reset_all', methods=['POST'])
-@v1_guard
-def api_personas_reset_all():
-    try:
-        from app.engine_personas import reset_all_persona_overrides
-        ok = reset_all_persona_overrides()
-        if not ok:
-            return jsonify({'ok': False, 'error': 'failed_to_reset'}), 500
-        return jsonify({'ok': True})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-
-@api_bp.route('/api/personas/export', methods=['GET'])
-@v1_guard
-def api_personas_export():
-    try:
-        from app.engine_personas import export_persona_overrides
-        data = export_persona_overrides()
-        return jsonify({'ok': True, 'overrides': data})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-
-@api_bp.route('/api/personas/import', methods=['POST'])
-@v1_guard
-def api_personas_import():
-    data = request.get_json() or {}
-    # Accept either {'overrides': {...}} or the raw dict
-    payload = data.get('overrides') if isinstance(data.get('overrides'), dict) else data
-    try:
-        from app.engine_personas import import_persona_overrides, validate_persona_override
-        # validate incoming payload before attempting to import
-        if not isinstance(payload, dict):
-            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
-        for k, v in payload.items():
-            if not isinstance(v, dict):
-                return jsonify({'ok': False, 'error': 'invalid_entry', 'which': k}), 400
-            okv, err = validate_persona_override(k, v)
-            if not okv:
-                return jsonify({'ok': False, 'error': 'invalid_entry_schema', 'which': k, 'message': err}), 400
-        ok = import_persona_overrides(payload)
-        if not ok:
-            return jsonify({'ok': False, 'error': 'save_failed'}), 500
-        return jsonify({'ok': True})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-
-@api_bp.route('/api/engine_info', methods=['GET'])
-def api_engine_info():
-    try:
-        # Provide detected engine path and some defaults
-        from app.chess_core import ChessGame
-        cg = ChessGame()
-        engine_ok = bool(cg.engine_path)
-        data = {'engine_path': cg.engine_path or None, 'engine_detected': engine_ok, 'default_engine_time': 0.05, 'multipv_cap': 16}
-        return jsonify({'ok': True, 'engine': data})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'server error'}), 500
-
-
-@api_bp.route('/api/simulate_batch', methods=['POST'])
-@v1_guard
-def api_simulate_batch():
-    """Run multiple persona-vs-persona games server-side and save PGNs + CSV summary."""
-    data = request.get_json() or {}
-    white_persona = data.get('white_persona')
-    black_persona = data.get('black_persona')
-    try:
-        engine_time = float(data.get('engine_time', 0.05))
-    except Exception:
-        engine_time = 0.05
-    try:
-        count = min(int(data.get('count', 1)), MAX_BATCH_COUNT)
-    except Exception:
-        count = 1
-    try:
-        max_moves = min(int(data.get('max_moves', 400)), MAX_SIM_MOVES)
-    except Exception:
-        max_moves = 400
-    seed = data.get('seed') if 'seed' in data else None
-
-    # Validation
-    try:
-        from app.engine_personas import is_persona_allowed
-        if white_persona and not is_persona_allowed(white_persona):
-            return jsonify({'ok': False, 'error': 'unknown_persona_white'}), 400
-        if black_persona and not is_persona_allowed(black_persona):
-            return jsonify({'ok': False, 'error': 'unknown_persona_black'}), 400
-    except Exception:
-        pass
-
-    # Prepare output dir
-    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    outdir = os.path.join(root, 'games', 'tests')
-    os.makedirs(outdir, exist_ok=True)
-
-    rows = []
-    saved = []
-    pgn_texts = []
-    for i in range(count):
-        try:
-            from app.chess_core import ChessGame
-            sim = ChessGame()
-        except Exception:
-            return jsonify({'ok': False, 'error': 'server error'}), 500
-
-        reason = 'max_moves_reached'
-        seed_used = None
-        for mv_i in range(max_moves):
-            if sim.board.is_game_over():
-                reason = 'game_over'
-                break
-            persona = white_persona if sim.board.turn == chess.WHITE else black_persona
-            mv_seed = None
-            if seed is not None:
-                try:
-                    mv_seed = int(seed) + mv_i
-                except Exception:
-                    mv_seed = seed
-            if seed_used is None:
-                seed_used = mv_seed
-            mv_time = engine_time
-            if persona:
-                try:
-                    mv_time = float(PERSONA_DEFAULT_ENGINE_TIME)
-                except Exception:
-                    pass
-            mv = sim.engine_move(limit=mv_time, engine_persona=persona, rng_seed=mv_seed)
-            if not mv:
-                reason = 'engine_failed'
-                break
-        result = sim.board.result() if sim.board.is_game_over() else '*'
-        # save PGN
-        try:
-            g = chess.pgn.Game()
-            g.headers['Event'] = 'Persona Simulation'
-            g.headers['White'] = white_persona or 'White'
-            g.headers['Black'] = black_persona or 'Black'
-            # Add useful metadata headers for batch analysis
-            g.headers['WhitePersona'] = white_persona or ''
-            g.headers['BlackPersona'] = black_persona or ''
-            g.headers['Seed'] = str(seed_used) if seed_used is not None else ''
-            g.headers['GameNumber'] = str(i+1)
-            g.headers['EngineTime'] = str(engine_time)
-            g.headers['Termination'] = reason or ''
-            g.headers['Result'] = result
-            node = g
-            for mv in sim.board.move_stack:
-                node = node.add_variation(mv)
-            exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
-            pgn_text = g.accept(exporter)
-            now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            safe_wp = str(white_persona or 'white').replace(' ', '_')
-            safe_bp = str(black_persona or 'black').replace(' ', '_')
-            fname = f'sim_{safe_wp}_vs_{safe_bp}_{now}_{i+1}.pgn'
-            path = os.path.join(outdir, fname)
-            with open(path, 'w', encoding='utf-8') as fh:
-                fh.write(pgn_text)
-            saved.append(fname)
-            pgn_texts.append(pgn_text)
-            rows.append({'file': fname, 'white': white_persona, 'black': black_persona, 'result': result, 'moves': len(sim.board.move_stack), 'seed': seed_used, 'reason': reason})
-        except Exception:
-            pass
-
-    # Write CSV
-    csv_path = os.path.join(outdir, f'summary_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    try:
-        with open(csv_path, 'w', newline='', encoding='utf-8') as cf:
-            w = csv.DictWriter(cf, fieldnames=['file', 'white', 'black', 'result', 'moves', 'seed', 'reason'])
-            w.writeheader()
-            for r in rows:
-                w.writerow(r)
-    except Exception:
-        csv_path = None
-
-    # If we have multiple PGNs, write a combined PGN file
-    combined_name = None
-    try:
-        if pgn_texts:
-            now2 = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            safe_wp = str(white_persona).replace(' ', '_')
-            safe_bp = str(black_persona).replace(' ', '_')
-            combined_name = f'batch_{safe_wp}_vs_{safe_bp}_{now2}.pgn'
-            combined_path = os.path.join(outdir, combined_name)
-            with open(combined_path, 'w', encoding='utf-8') as cf:
-                for pt in pgn_texts:
-                    cf.write(pt)
-                    cf.write('\n\n')
-    except Exception:
-        combined_name = None
-
-    return jsonify({'ok': True, 'count': len(saved), 'files': saved, 'csv': os.path.basename(csv_path) if csv_path else None, 'batch_pgn': combined_name})
-
 
 # ---------------------------------------------------------------------------
-# Bot Config Editor API (no v1_guard — always available)
+# Bot Config Editor API
+
 # ---------------------------------------------------------------------------
 
 @api_bp.route('/api/editor/config', methods=['GET'])
@@ -725,6 +349,39 @@ def api_editor_history(section, profile):
         return jsonify({'ok': True, 'history': stack})
     except Exception:
         return jsonify({'ok': False, 'error': 'failed to load history'}), 500
+
+
+@api_bp.route('/api/games/list', methods=['GET'])
+def api_games_list():
+    """Return a JSON list of .pgn filenames in the games folder."""
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    games_dir = os.path.join(root, 'games')
+    try:
+        files = sorted(
+            f for f in os.listdir(games_dir)
+            if f.endswith('.pgn') and os.path.isfile(os.path.join(games_dir, f))
+        )
+        return jsonify({'ok': True, 'files': files})
+    except FileNotFoundError:
+        return jsonify({'ok': True, 'files': []})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'failed to list games'}), 500
+
+
+@api_bp.route('/api/games/download/<filename>', methods=['GET'])
+def api_games_download(filename):
+    """Serve a specific PGN file for download from the games folder."""
+    safe = os.path.basename(filename)
+    if not safe.endswith('.pgn'):
+        return jsonify({'ok': False, 'error': 'invalid filename'}), 400
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    path = os.path.join(root, 'games', safe)
+    if not os.path.isfile(path):
+        return jsonify({'ok': False, 'error': 'file_not_found'}), 404
+    try:
+        return send_file(path, as_attachment=True, download_name=safe)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'download failed'}), 500
 
 
 @api_bp.route('/api/download_pgn', methods=['GET'])

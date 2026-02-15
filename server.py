@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 import json
 from app.api import api_bp
-import app.api as api_mod
 import os
 import hashlib
 
@@ -55,13 +54,7 @@ def create_app():
             version = hashlib.md5(data).hexdigest()
         except Exception:
             version = '1'
-        return render_template("index.html", main_js_version=version, v1_mode=api_mod.V1_MODE, debug_mode=app.debug)
-
-    @app.get("/editor")
-    def editor():
-        if api_mod.V1_MODE:
-            return "Not available", 404
-        return render_template("editor.html")
+        return render_template("index.html", main_js_version=version, v1_mode=True, debug_mode=app.debug)
 
     return app
 
