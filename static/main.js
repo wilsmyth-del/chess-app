@@ -56,6 +56,86 @@ const ChessSounds = {
   playSelect() { this.play('select'); }
 };
 
+// ============================================================================
+// CHESS CLOCK
+// ============================================================================
+const ChessClock = {
+  whiteTime: 0,
+  blackTime: 0,
+  activeColor: null,
+  interval: null,
+  enabled: false,
+
+  init(seconds) {
+    this.stop();
+    this.enabled = seconds > 0;
+    this.whiteTime = seconds;
+    this.blackTime = seconds;
+    this.activeColor = null;
+    this.updateDisplay();
+    const el = document.getElementById('clock-container');
+    if (el) el.classList.toggle('hidden', !this.enabled);
+  },
+
+  start(color) {
+    if (!this.enabled) return;
+    this.activeColor = color;
+    this.interval = setInterval(() => this.tick(), 1000);
+    this.updateDisplay();
+  },
+
+  switch(color) {
+    if (!this.enabled) return;
+    if (this.interval) { clearInterval(this.interval); this.interval = null; }
+    this.activeColor = color;
+    this.interval = setInterval(() => this.tick(), 1000);
+    this.updateDisplay();
+  },
+
+  stop() {
+    if (this.interval) { clearInterval(this.interval); this.interval = null; }
+    this.activeColor = null;
+    this.updateDisplay();
+  },
+
+  tick() {
+    if (!this.activeColor) return;
+    if (this.activeColor === 'w') {
+      this.whiteTime = Math.max(0, this.whiteTime - 1);
+    } else {
+      this.blackTime = Math.max(0, this.blackTime - 1);
+    }
+    this.updateDisplay();
+    if (this.whiteTime === 0 || this.blackTime === 0) {
+      this.stop();
+      const loser = this.whiteTime === 0 ? 'White' : 'Black';
+      try {
+        setUIState('RESULT', {
+          result: loser === 'White' ? '0-1' : '1-0',
+          reason: loser + ' ran out of time',
+          pgn: (typeof lastFinalPgn !== 'undefined' && lastFinalPgn) ? lastFinalPgn : ''
+        });
+      } catch(e) { console.error('Clock timeout setUIState failed', e); }
+    }
+  },
+
+  updateDisplay() {
+    const fmt = (s) => {
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return m + ':' + String(sec).padStart(2, '0');
+    };
+    const wt = document.getElementById('clock-time-white');
+    const bt = document.getElementById('clock-time-black');
+    const wFace = document.getElementById('clock-white');
+    const bFace = document.getElementById('clock-black');
+    if (wt) { wt.textContent = fmt(this.whiteTime); wt.classList.toggle('clock-low', this.enabled && this.whiteTime <= 30 && this.whiteTime > 0); }
+    if (bt) { bt.textContent = fmt(this.blackTime); bt.classList.toggle('clock-low', this.enabled && this.blackTime <= 30 && this.blackTime > 0); }
+    if (wFace) wFace.classList.toggle('clock-active', this.activeColor === 'w');
+    if (bFace) bFace.classList.toggle('clock-active', this.activeColor === 'b');
+  }
+};
+
 // Helper function to count pieces in a FEN string (for capture detection)
 function countPiecesInFen(fen) {
   if (!fen) return 0;
@@ -1658,6 +1738,8 @@ function handleGameDrop(source, target, piece) {
   setFen(intermediateFen, true);
   // 2. Send to server (which will eventually return the Engine's move)
   submitUci(source + target, prevFen);
+  // Switch clock to engine's side
+  try { const engineColor = game.turn(); ChessClock.switch(engineColor); } catch(e) {}
   // 3. Update status
   setStatus('Move sent: ' + source + target);
   // Play appropriate sound (capture vs normal move)
@@ -1736,12 +1818,15 @@ function submitUci(uci, prevFen) {
         setStatus('Game ended: ' + resultText);
         // Play checkmate/game over sound
         try { ChessSounds.playCheckmate(); } catch (e) { console.warn('Sound playback failed', e); }
-        
+
         // Update result indicator and switch to RESULT UI (voice will be triggered in setUIState)
         const el = document.getElementById('result-indicator'); if (el) el.textContent = resultText;
         AppState.setPlayEngine(false);
         setUIState('RESULT', { result: resp.result || '', reason: resp.reason || '', pgn: resp.pgn || '' });
         try { autoSaveGameToServer(resp.pgn, resp.result); } catch (e) { console.error('Operation failed:', e); }
+      } else {
+        // Switch clock back to player's side
+        try { ChessClock.switch(game.turn()); } catch(e) {}
       }
       return;
     }
@@ -1866,7 +1951,7 @@ window.addEventListener('load', async () => {
       });
     }
 
-    setupPillSelector('player-color-pills', 'player-color', 'white', (v) => { try { setBoardOrientation(v); } catch (e) { console.error('Operation failed:', e); } });
+    setupPillSelector('player-color-pills', 'player-color', 'white', (v) => { try { if (v !== 'random') setBoardOrientation(v); } catch (e) { console.error('Operation failed:', e); } });
     
     // Build-A-Bot selectors
     function updateBotDescription() {
@@ -2037,6 +2122,17 @@ window.addEventListener('load', async () => {
         document.body.classList.remove('game-in-progress');
       }
     } catch (e) { console.error('Operation failed:', e); }
+
+    // Chess clock
+    try {
+      if (state === 'IN_GAME') {
+        const tc = parseInt(document.getElementById('time-control')?.value || '0', 10);
+        ChessClock.init(tc);
+        if (tc > 0) ChessClock.start('w'); // white always moves first
+      } else {
+        ChessClock.stop();
+      }
+    } catch (e) { console.error('Clock state failed:', e); }
 
     // Removed flip-on-start control (not used)
 
@@ -2745,10 +2841,11 @@ window.addEventListener('load', async () => {
     const personaInput = document.getElementById('engine-persona');
 
     const playerName = nameInput ? nameInput.value : 'Guest';
-    const playerColor = colorInput ? colorInput.value : 'white';
+    const rawColor = colorInput ? colorInput.value : 'white';
+    const playerColor = rawColor === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : rawColor;
     const personaVal = personaInput ? personaInput.value : 'Intermediate';
 
-    // 2. Persist preferences
+    // 2. Persist preferences (store resolved color, not 'random')
     try {
       if (nameInput) localStorage.setItem('playerName', playerName);
       if (colorInput) localStorage.setItem('playerColor', playerColor);

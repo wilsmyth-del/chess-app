@@ -24,6 +24,31 @@
 button, .ctrl, .pill-btn { outline: none; }
 
 /* Pill button states */
+.pill-btn {
+	padding: 7px 14px;
+	border-radius: 18px;
+	border: 1px solid rgba(0,0,0,0.10);
+	background: var(--card);
+	color: var(--text);
+	cursor: pointer;
+	font-size: 0.9em;
+	transition: background 0.15s, color 0.15s;
+}
+.pill-btn:hover { background: rgba(10,143,10,0.12); }
+.pill-btn.pill-selected {
+	background: rgba(10,143,10,0.18);
+	border-color: rgba(10,143,10,0.35);
+	color: #0a6b0a;
+	font-weight: 600;
+}
+[data-theme="dark"] .pill-btn { background: var(--card); border-color: rgba(255,255,255,0.08); color: var(--text); }
+[data-theme="dark"] .pill-btn:hover { background: rgba(40,167,69,0.18); }
+[data-theme="dark"] .pill-btn.pill-selected {
+	background: rgba(40,167,69,0.25);
+	border-color: rgba(40,167,69,0.4);
+	color: #9ff0b8;
+	font-weight: 600;
+}
 .pill-disabled { opacity: 0.35; pointer-events: none; cursor: default; }
 .pill-hidden { display: none; }
 
@@ -156,6 +181,48 @@ html, body {
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Subtle shadow for depth */
 }
 
+/* Chess clock */
+#clock-container {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+#clock-container.hidden { display: none; }
+.clock-face {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 8px 12px;
+	border-radius: 6px;
+	border: 1px solid rgba(0,0,0,0.08);
+	background: var(--card);
+	transition: background 0.2s;
+}
+.clock-label {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	margin-bottom: 2px;
+}
+.clock-time {
+	font-size: 1.6rem;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	color: var(--text);
+	letter-spacing: 0.02em;
+}
+.clock-face.clock-active {
+	background: var(--card-accent-strong);
+	border-color: rgba(0,0,0,0.12);
+}
+.clock-time.clock-low { color: #c02626; }
+[data-theme="dark"] .clock-face { border-color: rgba(255,255,255,0.06); }
+[data-theme="dark"] .clock-face.clock-active { background: rgba(11,77,50,0.5); }
+[data-theme="dark"] .clock-time.clock-low { color: #f87171; }
+
 .board-bottom-controls { display:flex; gap:8px; margin-top:8px; justify-content:center; }
 
 /* Anchored captured-trays when positioned below the board on left or right */
@@ -266,6 +333,11 @@ html, body {
    MOBILE & TABLET RESPONSIVENESS
    ========================================= */
 @media only screen and (max-width: 850px) {
+	/* Reclaim body margins */
+	html, body {
+		margin: 0;
+		padding: 4px;
+	}
 	/* Stack columns vertically */
 	.layout {
 		display: flex;
@@ -277,12 +349,14 @@ html, body {
 	.left-col, .right-col {
 		width: 100%;
 		max-width: 100%;
+		min-width: 0;
 		margin-right: 0;
 	}
-	/* Force board to fit screen width */
+	/* Force board to fill screen width */
 	#board-container {
-		width: 100%;
+		width: calc(100vw - 8px);
 		max-width: 100vw;
+		min-width: 0;
 		padding: 0;
 	}
 	/* Maintain square aspect ratio */
@@ -299,6 +373,10 @@ html, body {
 	/* Shrink header */
 	.page-header h1 {
 		font-size: 1.5rem;
+	}
+	/* Hide header during game — board dominates */
+	body.game-in-progress .page-header {
+		display: none;
 	}
 }
 
