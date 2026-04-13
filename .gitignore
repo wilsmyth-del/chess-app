@@ -54,3 +54,7 @@ desktop.ini
 # Temp files
 *.tmp
 *.bak
+
+# Server-local config (NUC-specific, not for deployment)
+fail2ban-local.conf
+stockfish/stockfish-ubuntu-x86-64

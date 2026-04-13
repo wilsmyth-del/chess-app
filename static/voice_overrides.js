@@ -44,6 +44,8 @@
     check: "incheck.mp3",
     checkmateWin: "checkmatewinner.mp3",
     checkmateLose: "checkmateloss.mp3",
+    checkmateWhiteWins: "checkmatewinner.mp3",
+    checkmateBlackWins: "checkmatewinner.mp3",
     draw: "stalemate.mp3",
     resignYou: "resigned.mp3",
     resignOpponent: "resigned.mp3",

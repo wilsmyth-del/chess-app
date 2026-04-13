@@ -41,6 +41,9 @@
 
               <!-- Bottom controls: Export FEN (Download PGN removed; server auto-saves) -->
               <div class="board-bottom-controls">
+                <!-- Export FEN: intentionally placeholder — future chess tutor integration.
+                     FEN string will be passed to tutor session for position replay and training.
+                     Do not remove. Handler to be wired when chess-tutor FEN import is built. -->
                 <button id="export-fen-btn" class="ctrl small">Export FEN</button>
                 <button id="download-pgn-btn-game" class="ctrl small">Download PGN</button>
                 <button id="reset-btn" class="ctrl small">Reset</button>
@@ -59,9 +62,8 @@
                 <div id="tray-black" class="tray-items" style="display:flex; flex-wrap:wrap;"></div>
               </div>
             </div>
-          <!-- hidden status/result elements kept for JS compatibility -->
+          <!-- hidden status element kept for JS compatibility -->
           <div id="status" style="display:none"></div>
-          <div id="result-indicator" style="display:none"></div>
 
           <!-- Simplified UI: three states only: SETUP, IN_GAME, RESULT -->
           <div id="setup-panel" class="panel">
@@ -131,10 +133,10 @@
           </div>
 
           <div id="in-game-panel" class="panel" style="display:none">
-            <h3>Game in Progress</h3>
-            
             <!-- Traditional Chess Scoresheet Design -->
             <div id="scoresheet-container" style="background:rgba(0,0,0,0.3); border:1px solid #444; border-radius:6px; margin-bottom:15px; overflow:hidden;">
+              <!-- Mobile collapse toggle (JS shows/hides via .scoresheet-collapsed) -->
+              <button id="scoresheet-toggle" aria-expanded="true" aria-controls="scoresheet-moves">Show Moves ▾</button>
               <!-- Player names header -->
               <div id="scoresheet-players" style="display:flex; justify-content:space-between; padding:8px 12px; background:rgba(0,0,0,0.4); border-bottom:1px solid #444;">
                 <div id="white-player-name" style="color:#f0f0f0; font-weight:600; font-size:0.9em;">White: Player</div>
@@ -157,7 +159,7 @@
               <div id="scoresheet-result" style="display:none; padding:8px 12px; background:rgba(0,150,0,0.2); border-top:1px solid #444; text-align:center; font-weight:600; color:#4CAF50;"></div>
               
               <!-- Navigation buttons -->
-              <div style="display:flex; width:100%; box-sizing:border-box; border-top:1px solid #444;">
+              <div class="scoresheet-nav" style="display:flex; width:100%; box-sizing:border-box; border-top:1px solid #444;">
                 <button id="nav-start" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&lt;&lt;</button>
                 <button id="nav-prev" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&lt;</button>
                 <button id="nav-next" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&gt;</button>
@@ -178,15 +180,7 @@
             <div id="hint-text" style="margin-top:10px; font-size:0.9em; color:#ffff80; min-height:1.2em;"></div>
           </div>
 
-          <div id="result-panel" class="panel" style="display:none">
-            <h3>Result</h3>
-            <div id="result-banner" style="margin-top:8px;font-weight:700"></div>
-            <div id="result-reason" style="margin-top:6px;color:var(--muted)"></div>
-            <div style="margin-top:8px">
-              <!-- Download PGN moved to game-over modal -->
-              <button id="new-game-btn" class="ctrl small">New Game</button>
-            </div>
-          </div>
+
 
       </div>
     </div>

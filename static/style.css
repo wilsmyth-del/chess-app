@@ -1,56 +1,189 @@
+/* =========================================
+   CSS VARIABLES & THEME SYSTEM
+   KB ticket system design language
+   ========================================= */
 :root {
-	--bg: #e8f6ff; /* light blue page background */
-	--text: #032433; /* dark navy text for contrast */
-	--muted: #3b6b7f;
-	--card: #ffffff;
-	--card-accent: rgba(14,95,61,0.06); /* light green tint for form fields */
-	--card-accent-strong: #f1fbf6;
-	--modal-overlay: rgba(0,0,0,0.5);
-	--danger: #8b1a1a; /* deep red for resign */
+	--bg: #0f1117;
+	--text: #e2e8f0;
+	--muted: #94a3b8;
+	--card: #1a1d2e;
+	--card-accent: rgba(99,102,241,0.08);
+	--card-accent-strong: #1a1d2e;
+	--border: #2d3148;
+	--accent-primary: #a78bfa;
+	--accent-secondary: #6366f1;
+	--modal-overlay: rgba(0,0,0,0.75);
+	--danger: #f87171;
 }
 
-[data-theme="dark"] {
-	--bg: #042a1a; /* deep green for dark theme */
-	--text: #e8f7ee; /* light text for contrast on green */
-	--muted: #9fc9a8;
-	--card: #07351f;
-	--card-accent: rgba(11,77,50,0.12);
-	--card-accent-strong: rgba(7,41,26,0.35);
-	--modal-overlay: rgba(0,0,0,0.75);
-	--danger: #a02020; /* deep red for resign (dark theme) */
+/* =========================================
+   BASE RESET & GLOBAL
+   ========================================= */
+html, body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: system-ui, sans-serif;
+	margin: 20px;
 }
 
 /* Remove default focus outlines from all buttons */
 button, .ctrl, .pill-btn { outline: none; }
 
-/* Pill button states */
-.pill-btn {
-	padding: 7px 14px;
-	border-radius: 18px;
-	border: 1px solid rgba(0,0,0,0.10);
+/* =========================================
+   TYPOGRAPHY & STATUS
+   ========================================= */
+#status { margin-top: 12px; color: var(--muted); }
+
+/* Result announcement (theme-aware) */
+#result-indicator { margin-top: 6px; font-weight: 600; color: var(--text); }
+.result-win { color: var(--text); }
+.result-draw { color: var(--muted); }
+
+.hint { font-size:12px; color:var(--muted); }
+.visually-hidden { display:none !important; }
+
+/* =========================================
+   LAYOUT
+   ========================================= */
+/* Two-column layout */
+.layout { display:flex; gap:24px; align-items:flex-start; flex-wrap: wrap; }
+.left-col { flex: 0 0 65%; min-width: 0; }
+.right-col { flex: 1 1 35%; max-width:420px; }
+
+.page-header { display:flex; align-items:center; gap:12px; justify-content:space-between; }
+
+/* =========================================
+   PERSONA INDICATOR
+   ========================================= */
+.persona-indicator {
+	margin-left:12px;
+	font-size:13px;
+	color: var(--text);
+	font-weight:700;
 	background: var(--card);
+	padding:6px 10px;
+	border-radius:999px;
+	box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+	border: 1px solid var(--border);
+	display:inline-block;
+	min-width:96px;
+	text-align:center;
+}
+
+/* =========================================
+   THEME TOGGLE
+   ========================================= */
+#theme-toggle { margin-left:12px; padding:6px 10px; cursor:pointer; border-radius:4px; border:1px solid var(--border); background:transparent; color:var(--text); }
+
+/* =========================================
+   PILL BUTTONS
+   Minimalist text-only style (index.css intent)
+   ========================================= */
+.pill-btn {
+	padding: 8px 12px;
+	border-radius: 18px;
+	border: none;
+	background: transparent;
 	color: var(--text);
 	cursor: pointer;
-	font-size: 0.9em;
-	transition: background 0.15s, color 0.15s;
+	font-size: 1em;
+	transition: color 0.2s ease;
 }
-.pill-btn:hover { background: rgba(10,143,10,0.12); }
-.pill-btn.pill-selected {
-	background: rgba(10,143,10,0.18);
-	border-color: rgba(10,143,10,0.35);
-	color: #0a6b0a;
-	font-weight: 600;
-}
-[data-theme="dark"] .pill-btn { background: var(--card); border-color: rgba(255,255,255,0.08); color: var(--text); }
-[data-theme="dark"] .pill-btn:hover { background: rgba(40,167,69,0.18); }
-[data-theme="dark"] .pill-btn.pill-selected {
-	background: rgba(40,167,69,0.25);
-	border-color: rgba(40,167,69,0.4);
-	color: #9ff0b8;
-	font-weight: 600;
-}
+
+.pill-btn:hover { color: var(--accent-primary); }
+
+.pill-btn.pill-selected { color: var(--accent-primary); }
+
 .pill-disabled { opacity: 0.35; pointer-events: none; cursor: default; }
 .pill-hidden { display: none; }
+
+/* =========================================
+   CTRL BUTTONS
+   Single unified definition — minimalist, no border
+   ========================================= */
+.control-group { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+
+.ctrl {
+	padding: 6px 12px;
+	border-radius: 4px;
+	border: none;
+	background: var(--accent-secondary);
+	cursor: pointer;
+	color: #ffffff;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	white-space: nowrap;
+	min-width: 120px;
+	height: 36px;
+	transition: background 0.2s ease, color 0.2s ease;
+}
+
+.ctrl:hover { background: var(--accent-primary); color: #ffffff; }
+
+.ctrl.small { padding: 6px 12px; font-size: 13px; min-width: 120px; height: 36px; }
+.ctrl.danger { color: var(--danger); }
+
+/* Play button states */
+.ctrl.play-start { background: var(--accent-secondary); font-weight: 700; }
+.ctrl.play-resign { background: transparent; color: var(--danger); font-weight: 700; }
+
+/* Resign button — danger colour */
+#end-game-btn {
+	background: transparent;
+	color: var(--danger);
+	font-weight: 700;
+	font-size: 1.15em;
+	border: none;
+}
+#end-game-btn:hover { color: #fca5a5; background: transparent; }
+
+/* Disable reset/new-game buttons during active game */
+body.game-in-progress #reset-btn,
+body.game-in-progress #new-game-btn-game {
+	opacity: 0.35;
+	pointer-events: none;
+	cursor: default;
+}
+
+/* =========================================
+   BOARD LAYOUT
+   ========================================= */
+/* Board controls beside the board */
+.board-wrap { display:flex; flex-direction:column; gap:12px; align-items:flex-start; position: relative; }
+.board-controls { display:flex; flex-direction:column; gap:8px; align-items:flex-start; margin-left:6px; }
+
+/* Board sizing: scale with viewport, cap to avoid scroll */
+#board-container {
+	width: min(72vh, 75vw);
+	max-width: 900px;
+	min-width: 360px;
+	max-height: calc(100vh - 220px);
+	position: relative;
+}
+
+/* Keep the board square */
+#board {
+	width: 100%;
+	aspect-ratio: 1 / 1;
+	height: auto;
+	border: 4px solid var(--border);
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+
+.board-bottom-controls { display:flex; gap:8px; margin-top:8px; justify-content:center; }
+
+/* Anchored captured-trays when positioned below the board */
+.captured-trays.anchored-right { position: absolute; bottom: -46px; right: 8px; z-index: 30; }
+.captured-trays.anchored-left { position: absolute; bottom: -46px; left: 8px; z-index: 30; }
+
+/* Tap-to-move selection highlight */
+.square-55d63.highlight-selected {
+	background: yellow !important;
+	opacity: 0.5;
+}
 
 /* Ensure dragged chess piece stays visible during drag */
 .piece-417db {
@@ -64,130 +197,16 @@ button, .ctrl, .pill-btn { outline: none; }
 	z-index: 10001 !important;
 }
 
-html, body {
-	background: var(--bg);
-	color: var(--text);
-	font-family: Arial, sans-serif;
-	margin: 20px;
-}
-
-#status { margin-top: 12px; color: var(--muted); }
-
-/* Result announcement (theme-aware) */
-#result-indicator { margin-top: 6px; font-weight: 600; color: var(--text); }
-.result-win { color: var(--text); }
-.result-draw { color: var(--muted); }
-
-/* Promotion modal styles */
-.modal.hidden { display: none; }
-.modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: var(--modal-overlay); display:flex; align-items:center; justify-content:center; z-index:9999; }
-.modal-content { background: var(--card); padding:16px 20px; border-radius:6px; text-align:center; min-width:260px; color: var(--text); }
-.promo-buttons { display:flex; gap:8px; justify-content:center; margin:12px 0; }
-.promo-btn { padding:8px 12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; background:transparent; border:1px solid transparent; color:var(--text); }
-.promo-img { width:36px; height:36px; display:inline-block; }
-.promo-label { font-size:12px; color:var(--text); }
-.promo-cancel { margin-top:8px; background:transparent; border:0; color:var(--muted); cursor:pointer; }
-
-/* Theme toggle button (small, unobtrusive) */
-#theme-toggle { margin-left:12px; padding:6px 10px; cursor:pointer; border-radius:4px; border:1px solid rgba(0,0,0,0.08); background:transparent; color:var(--text); }
-
-/* Small visual adjustments for dark mode contrast */
-[data-theme="dark"] #theme-toggle { border-color: rgba(255,255,255,0.08); }
-
-/* Two-column layout */
-.layout { display:flex; gap:24px; align-items:flex-start; }
-.left-col { flex: 0 0 65%; min-width: 520px; }
-.right-col { flex: 1 1 35%; max-width:420px; }
-
-.page-header { display:flex; align-items:center; gap:12px; justify-content:space-between; }
-
-.persona-indicator {
-	margin-left:12px;
-	font-size:13px;
-	color: var(--text);
-	font-weight:700;
-	background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.04));
-	padding:6px 10px;
-	border-radius:999px;
-	box-shadow: 0 6px 18px rgba(2,6,8,0.06);
-	border: 1px solid rgba(0,0,0,0.06);
-	display:inline-block;
-	min-width:96px;
-	text-align:center;
-}
-
-.turn-area { margin-bottom:12px; }
-.turn-status { margin-bottom:6px; color: var(--muted); font-weight:600; }
-
-/* Board controls beside the board */
-.board-wrap { display:flex; flex-direction:column; gap:12px; align-items:flex-start; position: relative; }
-.board-controls { display:flex; flex-direction:column; gap:8px; align-items:flex-start; margin-left:6px; }
-.ctrl.small { padding:6px 8px; font-size:13px; }
-
-/* Controls placed above the board */
-/* board-top-controls removed; buttons moved into .board-controls */
-
-/* Tabs above the board */
-.tabs { display:flex; gap:8px; margin-bottom:10px; }
-.tab-btn { padding:8px 12px; border-radius:6px; border:1px solid rgba(0,0,0,0.06); background:var(--card); cursor:pointer; font-weight:600; }
-.tab-btn[aria-selected="true"] { box-shadow: 0 1px 0 rgba(0,0,0,0.06) inset; background: linear-gradient(#fff,#f6f6f6); }
-.tab-cards { display:flex; gap:12px; margin-top:12px; }
-.tab-card { padding:10px; background:var(--card); border:1px solid rgba(0,0,0,0.06); border-radius:6px; flex:1; display:none; }
-.tab-card h3 { margin:0 0 6px 0; }
-.tab-card[data-tab="game"] { display:block; }
-
-/* Simulator form fields: light green, card-like inputs */
-.sim-form input[type="number"],
-.sim-form input[type="text"],
-.sim-form select,
-.sim-form textarea,
-.sim-form button {
-	background: var(--card-accent-strong);
-	border: 1px solid rgba(0,0,0,0.06);
-	color: var(--text);
-	padding: 8px 10px;
-	border-radius: 8px;
-}
-.sim-form textarea { height:120px; }
-
-[data-theme="dark"] .sim-form input[type="number"],
-[data-theme="dark"] .sim-form input[type="text"],
-[data-theme="dark"] .sim-form select,
-[data-theme="dark"] .sim-form textarea,
-[data-theme="dark"] .sim-form button {
-	background: var(--card-accent-strong);
-	border: 1px solid rgba(255,255,255,0.06);
-	color: var(--text);
-}
-
-/* Board container larger by default; responsive */
-/* Board sizing: scale with viewport but cap to avoid forcing scroll
-	 - Use viewport-height as primary driver so the board fits without vertical scroll
-	 - Constrain by max-width to keep layout tidy on wide screens */
-#board-container {
-	width: min(72vh, 75vw);
-	max-width: 900px;
-	min-width: 360px;
-	max-height: calc(100vh - 220px);
-	position: relative;
-}
-
-/* Keep the board square using aspect-ratio where supported; fallback allows chessboard.js to size */
-#board {
-	width: 100%;
-	aspect-ratio: 1 / 1;
-	height: auto;
-	border: 4px solid #000000; /* Black border around the board */
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Subtle shadow for depth */
-}
-
-/* Chess clock */
+/* =========================================
+   CHESS CLOCK
+   ========================================= */
 #clock-container {
 	display: flex;
 	gap: 8px;
 	margin-bottom: 10px;
 }
 #clock-container.hidden { display: none; }
+
 .clock-face {
 	flex: 1;
 	display: flex;
@@ -195,7 +214,7 @@ html, body {
 	align-items: center;
 	padding: 8px 12px;
 	border-radius: 6px;
-	border: 1px solid rgba(0,0,0,0.08);
+	border: 1px solid var(--border);
 	background: var(--card);
 	transition: background 0.2s;
 }
@@ -215,62 +234,115 @@ html, body {
 	letter-spacing: 0.02em;
 }
 .clock-face.clock-active {
-	background: var(--card-accent-strong);
-	border-color: rgba(0,0,0,0.12);
+	background: rgba(99,102,241,0.15);
+	border-color: var(--accent-secondary);
 }
-.clock-time.clock-low { color: #c02626; }
-[data-theme="dark"] .clock-face { border-color: rgba(255,255,255,0.06); }
-[data-theme="dark"] .clock-face.clock-active { background: rgba(11,77,50,0.5); }
-[data-theme="dark"] .clock-time.clock-low { color: #f87171; }
+.clock-time.clock-low { color: var(--danger); }
 
-.board-bottom-controls { display:flex; gap:8px; margin-top:8px; justify-content:center; }
-
-/* Anchored captured-trays when positioned below the board on left or right */
-.captured-trays.anchored-right { position: absolute; bottom: -46px; right: 8px; z-index: 30; }
-.captured-trays.anchored-left { position: absolute; bottom: -46px; left: 8px; z-index: 30; }
-
-/* Make piece palette appear under the board on small screens */
-@media (max-width:800px) {
-	#board-container { max-width:100%; }
-	.tab-cards { flex-direction:column; }
+/* =========================================
+   PANEL VISUAL POLISH
+   box-shadow, border-radius, state transitions
+   ========================================= */
+.panel {
+	box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+	border-radius: 8px;
+	transition: opacity 0.2s ease;
+}
+.card {
+	box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+	border-radius: 8px;
 }
 
-/* Accordion */
-.accordion { border: 1px solid rgba(0,0,0,0.06); border-radius:6px; overflow:hidden; background: var(--card); }
-.accordion-item + .accordion-item { border-top: 1px solid rgba(0,0,0,0.04); }
+/* =========================================
+   TABS
+   ========================================= */
+.tabs { display:flex; gap:8px; margin-bottom:10px; }
+.tab-btn { padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--card); cursor:pointer; font-weight:600; color:var(--text); }
+.tab-btn[aria-selected="true"] { background: var(--accent-secondary); color: #ffffff; border-color: var(--accent-secondary); }
+.tab-cards { display:flex; gap:12px; margin-top:12px; }
+.tab-card { padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; flex:1; display:none; color:var(--text); }
+.tab-card h3 { margin:0 0 6px 0; }
+.tab-card[data-tab="game"] { display:block; }
+
+/* =========================================
+   ACCORDION
+   ========================================= */
+.accordion { border: 1px solid var(--border); border-radius:6px; overflow:hidden; background: var(--card); }
+.accordion-item + .accordion-item { border-top: 1px solid var(--border); }
 .accordion-toggle { width:100%; text-align:left; padding:10px 12px; background:transparent; border:0; cursor:pointer; font-weight:600; color:var(--text); }
 .accordion-content { padding:10px 12px; display:none; }
 .accordion-content.open { display:block; }
 
-.control-group { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
-.ctrl { padding:6px 12px; border-radius:4px; border:1px solid rgba(0,0,0,0.08); background:transparent; cursor:pointer; color:var(--text); box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; text-align:center; white-space:nowrap; min-width:120px; height:36px; }
-.ctrl.danger { color:var(--danger); }
-
-/* Ensure small variant matches same size for visual consistency */
-.ctrl.small { padding:6px 12px; font-size:13px; min-width:120px; height:36px; }
-
-/* Play button states: green for start, red for resign (text color) */
-.ctrl.play-start { color: #0a8f0a; font-weight:700; }
-.ctrl.play-resign { color: #c02626; font-weight:700; }
-[data-theme="dark"] .ctrl { border-color: rgba(255,255,255,0.06); }
-
-/* Persona indicator dark-mode treatment */
-[data-theme="dark"] .persona-indicator {
+/* =========================================
+   SIMULATOR FORM
+   ========================================= */
+.sim-form input[type="number"],
+.sim-form input[type="text"],
+.sim-form select,
+.sim-form textarea,
+.sim-form button {
+	background: var(--card);
+	border: 1px solid var(--border);
 	color: var(--text);
-	background: linear-gradient(90deg, rgba(11,77,50,0.9), rgba(6,48,31,0.95));
-	border: 1px solid rgba(255,255,255,0.06);
-	box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+	padding: 8px 10px;
+	border-radius: 8px;
 }
+.sim-form textarea { height:120px; }
 
-.hint { font-size:12px; color:var(--muted); }
-
-.visually-hidden { display:none !important; }
-
+/* =========================================
+   ENGINE CONTROLS
+   ========================================= */
 .engine-controls input[type="range"] { width:100%; margin-top:6px; }
 
-.move-list { margin-top:6px; width:100%; height:112px; overflow:auto; border:1px solid rgba(0,0,0,0.06); padding:6px; font-family:monospace; font-size:13px; line-height:20px; background:var(--card); color:var(--text); }
+/* =========================================
+   SCORESHEET COLLAPSED STATE (mobile toggle)
+   ========================================= */
+.scoresheet-collapsed #scoresheet-moves {
+	height: 0 !important;
+	overflow: hidden !important;
+	padding: 0 !important;
+}
+/* Hide nav buttons when collapsed */
+.scoresheet-collapsed .scoresheet-nav {
+	display: none !important;
+}
+/* Toggle button — shown on mobile only */
+#scoresheet-toggle {
+	display: none;
+	width: 100%;
+	padding: 8px 12px;
+	background: transparent;
+	border: none;
+	border-bottom: 1px solid var(--border);
+	color: var(--text);
+	font-size: 0.9em;
+	font-weight: 600;
+	cursor: pointer;
+	text-align: left;
+}
+@media only screen and (max-width: 850px) {
+	#scoresheet-toggle { display: block; }
+}
 
-/* Captured piece trays */
+@media only screen and (max-width: 1100px) {
+	.layout { flex-direction: column; }
+	.left-col { flex: 0 0 100%; width: 100%; }
+	.right-col { flex: 1 1 100%; max-width: 100%; }
+}
+
+/* Alternating rows */
+#scoresheet-moves tr:nth-child(odd) {
+	background: rgba(255,255,255,0.03);
+}
+
+/* =========================================
+   MOVE LIST
+   ========================================= */
+.move-list { margin-top:6px; width:100%; height:112px; overflow:auto; border:1px solid var(--border); padding:6px; font-family:monospace; font-size:13px; line-height:20px; background:var(--card); color:var(--muted); }
+
+/* =========================================
+   CAPTURED PIECE TRAYS
+   ========================================= */
 .captured-trays { display:flex; gap:12px; margin-top:8px; }
 .captured-tray { display:flex; flex-direction:column; gap:6px; flex:1; }
 .tray-label { font-size:12px; color:var(--muted); font-weight:600; }
@@ -278,235 +350,145 @@ html, body {
 .captured-piece { width:24px; height:24px; display:inline-block; }
 
 /* Numeric badge next to captured piece icons */
-.tray-badge { display:inline-block; margin-left:6px; font-size:12px; color:var(--text); background: rgba(0,0,0,0.06); padding:2px 6px; border-radius:10px; min-width:18px; text-align:center; line-height:18px; }
-
-[data-theme="dark"] .tray-badge { background: rgba(255,255,255,0.06); color:var(--text); }
+.tray-badge { display:inline-block; margin-left:6px; font-size:12px; color:var(--text); background: rgba(255,255,255,0.06); padding:2px 6px; border-radius:10px; min-width:18px; text-align:center; line-height:18px; }
 
 /* Wrapper for each captured piece icon (used by JS) */
 .tray-item { display:inline-flex; align-items:center; gap:6px; margin-right:4px; }
 
-/* Material advantage badge shown next to the captured-tray container */
-.score-badge { display:inline-block; padding:4px 8px; border-radius:8px; font-weight:700; font-size:0.95em; background: rgba(40,167,69,0.08); color: #28a745; margin-left:8px; }
-[data-theme="dark"] .score-badge { background: rgba(40,167,69,0.12); color: #9ff0b8; }
-
-/* brief highlight when trays update */
+/* Brief highlight when trays update */
 .tray-items.tray-flash { animation: trayFlash 420ms ease-in-out; }
 @keyframes trayFlash { 0% { background: rgba(255,255,0,0.12); } 100% { background: transparent; } }
 
-@media (max-width:800px) {
-	.layout { flex-direction:column; }
-	.right-col { max-width:100%; }
-}
-
-/* Dev debug panel theme-aware styling */
-/* Dev debug panel: force a light, high-contrast appearance so it's readable
-   even when the site is in dark mode. This panel is dev-only and should
-   remain visually distinct from the rest of the UI. */
-#dev-debug-panel {
-	background: #ffffff; /* light card */
-	color: #0b1220; /* dark text for readability */
-	border: 1px solid rgba(0,0,0,0.08);
-	box-shadow: 0 6px 18px rgba(2,6,8,0.12);
-	opacity: 0.96;
-}
-
-/* Ensure the same readable styling in dark theme (override theme variables).
-   Keep it developer-facing only so we intentionally break theme here. */
-[data-theme="dark"] #dev-debug-panel {
-	background: #ffffff;
-	color: #0b1220;
-	border: 1px solid rgba(0,0,0,0.12);
-	box-shadow: 0 6px 18px rgba(2,6,8,0.18);
-	opacity: 0.96;
-}
-
-/* Dark theme: slightly lighter border for move list */
-[data-theme="dark"] .move-list { border-color: rgba(255,255,255,0.06); }
-
-/* Tap-to-move selection highlight */
-.square-55d63.highlight-selected {
-	background: yellow !important;
-	opacity: 0.5;
-}
-
 /* =========================================
-   MOBILE & TABLET RESPONSIVENESS
+   MODALS
+   Base modal: covers viewport, flex-centered
+   .hidden class collapses it
    ========================================= */
-@media only screen and (max-width: 850px) {
-	/* Reclaim body margins */
-	html, body {
-		margin: 0;
-		padding: 4px;
-	}
-	/* Stack columns vertically */
-	.layout {
-		display: flex;
-		flex-direction: column;
-		width: 100%;
-		padding: 5px;
-	}
-	/* Full width columns */
-	.left-col, .right-col {
-		width: 100%;
-		max-width: 100%;
-		min-width: 0;
-		margin-right: 0;
-	}
-	/* Force board to fill screen width */
-	#board-container {
-		width: calc(100vw - 8px);
-		max-width: 100vw;
-		min-width: 0;
-		padding: 0;
-	}
-	/* Maintain square aspect ratio */
-	#board {
-		width: 100% !important;
-		height: auto !important;
-		aspect-ratio: 1 / 1;
-	}
-	/* Move panels below */
-	.panel {
-		margin-top: 15px;
-		width: 100%;
-	}
-	/* Shrink header */
-	.page-header h1 {
-		font-size: 1.5rem;
-	}
-	/* Hide header during game — board dominates */
-	body.game-in-progress .page-header {
-		display: none;
-	}
-}
-
-/* =========================================
-   GAME FOCUS MODE - Dim background during play
-   ========================================= */
-
-/* Overlay that dims everything except the board */
-.game-focus-overlay {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: rgba(0, 0, 0, 0.4); /* Semi-transparent black */
-	pointer-events: none; /* Allow clicks to pass through */
-	opacity: 0;
-	transition: opacity 0.3s ease-in-out;
-	z-index: 5; /* Below modals but above content */
-}
-
-/* Active state - show the overlay */
-body.game-in-progress .game-focus-overlay {
-	opacity: 1;
-}
-
-/* Ensure board and controls stay above the overlay */
-.board-wrap,
-#board-container,
-#board,
-.in-game-panel {
-	position: relative;
-	z-index: 10; /* Above the dimming overlay */
-}
-
-/* Keep buttons and game controls clickable and visible */
-.board-controls,
-.board-bottom-controls,
-#hint-btn,
-.result-panel {
-	position: relative;
-	z-index: 10;
-}
-
-/* Feedback Button (floating bottom-right) */
-.feedback-button {
-	position: fixed;
-	bottom: 20px;
-	right: 20px;
-	background-color: #4CAF50;
-	color: white;
-	border: none;
-	padding: 12px 20px;
-	font-size: 16px;
-	border-radius: 25px;
-	cursor: pointer;
-	box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-	z-index: 1000;
-	transition: all 0.3s ease;
-}
-
-.feedback-button:hover {
-	background-color: #45a049;
-	transform: translateY(-2px);
-	box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-}
-
-/* Modal Styles */
+.modal.hidden { display: none; }
 .modal {
-	display: none;
 	position: fixed;
-	z-index: 1001;
-	left: 0;
-	top: 0;
-	width: 100%;
-	height: 100%;
-	background-color: rgba(0,0,0,0.5);
+	left: 0; top: 0; right: 0; bottom: 0;
+	background: var(--modal-overlay);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 9999;
 }
 
+/* Promotion modal content */
 .modal-content {
-	background-color: #fefefe;
-	margin: 10% auto;
-	padding: 30px;
-	border: 1px solid #888;
-	border-radius: 10px;
-	width: 90%;
-	max-width: 500px;
-	box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+	background: var(--card);
+	border: 1px solid var(--border);
+	padding: 16px 20px;
+	border-radius: 6px;
+	text-align: center;
+	min-width: 260px;
+	color: var(--text);
+}
+.promo-buttons { display:flex; gap:8px; justify-content:center; margin:12px 0; }
+.promo-btn { padding:8px 12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; background:transparent; border:1px solid transparent; color:var(--text); }
+.promo-img { width:36px; height:36px; display:inline-block; }
+.promo-label { font-size:12px; color:var(--text); }
+.promo-cancel { margin-top:8px; background:transparent; border:0; color:var(--muted); cursor:pointer; }
+
+/* =========================================
+   GAME OVER MODAL
+   Theme-aware: uses CSS variables, no hardcoded felt green
+   ========================================= */
+#game-over-modal[aria-hidden="false"] {
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
+.game-over-content {
+	background: var(--card);
+	color: var(--text);
+	padding: 30px;
+	border-radius: 12px;
+	max-width: 500px;
+	width: 90%;
+	box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+	border: 2px solid var(--border);
+}
+
+.game-over-content h2 {
+	margin-top: 0;
+	color: var(--accent-primary);
+	font-size: 1.8em;
+}
+
+.game-over-content #game-over-result {
+	color: var(--text);
+	font-size: 1.3em;
+}
+
+.game-over-content #game-over-reason {
+	color: var(--muted);
+}
+
+.game-over-content .button-group {
+	margin-top: 24px;
+}
+
+/* Game-over modal buttons */
+.game-over-content .submit-btn {
+	background-color: var(--accent-secondary);
+	color: #ffffff;
+	border: none;
+	padding: 8px 16px;
+	border-radius: 5px;
+	transition: background 0.2s ease;
+}
+
+.game-over-content .submit-btn:hover {
+	background-color: var(--accent-primary);
+}
+
+.game-over-content .cancel-btn {
+	background-color: transparent;
+	color: var(--muted);
+	border: none;
+	padding: 8px 12px;
+	transition: color 0.2s ease;
+}
+
+.game-over-content .cancel-btn:hover {
+	color: var(--text);
+}
+
+/* =========================================
+   FEEDBACK MODAL
+   ========================================= */
 .close {
-	color: #aaa;
+	color: var(--muted);
 	float: right;
 	font-size: 28px;
 	font-weight: bold;
 	cursor: pointer;
 	line-height: 20px;
 }
-
 .close:hover,
-.close:focus {
-	color: #000;
-}
-
-.modal-content h2 {
-	margin-top: 0;
-	color: #333;
-}
-
-.modal-content p {
-	color: #666;
-	margin-bottom: 20px;
-}
+.close:focus { color: var(--text); }
 
 #feedbackForm label {
 	display: block;
 	margin-top: 15px;
 	margin-bottom: 5px;
 	font-weight: bold;
-	color: #333;
+	color: var(--text);
 }
 
 #feedbackForm input[type="text"],
 #feedbackForm textarea {
 	width: 100%;
 	padding: 10px;
-	border: 1px solid #ddd;
+	border: 1px solid var(--border);
 	border-radius: 5px;
 	font-size: 14px;
 	box-sizing: border-box;
+	background: var(--card);
+	color: var(--text);
 }
 
 #feedbackForm textarea {
@@ -528,26 +510,15 @@ body.game-in-progress .game-focus-overlay {
 	border-radius: 5px;
 	font-size: 16px;
 	cursor: pointer;
-	transition: background-color 0.3s;
+	background-color: transparent;
+	transition: color 0.2s ease;
 }
 
-.submit-btn {
-	background-color: #4CAF50;
-	color: white;
-}
+.submit-btn { background-color: var(--accent-secondary); color: #ffffff; border-radius: 5px; }
+.submit-btn:hover { background-color: var(--accent-primary); color: #ffffff; }
 
-.submit-btn:hover {
-	background-color: #45a049;
-}
-
-.cancel-btn {
-	background-color: #f44336;
-	color: white;
-}
-
-.cancel-btn:hover {
-	background-color: #da190b;
-}
+.cancel-btn { color: var(--muted); background-color: transparent; }
+.cancel-btn:hover { color: var(--text); background-color: transparent; }
 
 #feedbackSuccess {
 	text-align: center;
@@ -555,7 +526,155 @@ body.game-in-progress .game-focus-overlay {
 }
 
 #feedbackSuccess p {
-	color: #4CAF50;
+	color: var(--accent-primary);
 	font-size: 18px;
 	font-weight: bold;
+}
+
+/* =========================================
+   FEEDBACK BUTTON (floating)
+   Minimalist text-only (index.css intent)
+   ========================================= */
+.feedback-button {
+	position: fixed;
+	bottom: 20px;
+	right: 20px;
+	background-color: var(--accent-secondary);
+	color: #ffffff;
+	border: none;
+	padding: 12px 20px;
+	font-size: 16px;
+	border-radius: 25px;
+	cursor: pointer;
+	box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+	z-index: 1000;
+	transition: background 0.2s ease;
+}
+
+.feedback-button:hover {
+	background-color: var(--accent-primary);
+	transform: none;
+	box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+/* =========================================
+   GAME FOCUS MODE
+   Dims background during play
+   ========================================= */
+.game-focus-overlay {
+	position: fixed;
+	top: 0; left: 0; right: 0; bottom: 0;
+	background: rgba(0, 0, 0, 0.4);
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.3s ease-in-out;
+	z-index: 5;
+}
+
+body.game-in-progress .game-focus-overlay { opacity: 1; }
+
+/* Board stays above overlay */
+.board-wrap,
+#board-container,
+#board,
+.in-game-panel {
+	position: relative;
+	z-index: 10;
+}
+
+.board-controls,
+.board-bottom-controls,
+#hint-btn,
+.result-panel {
+	position: relative;
+	z-index: 10;
+}
+
+/* Hide header during game — board dominates */
+@media only screen and (max-width: 850px) {
+	body.game-in-progress .page-header { display: none; }
+}
+
+/* =========================================
+   DEV DEBUG PANEL
+   Intentionally breaks theme — high contrast always
+   ========================================= */
+#dev-debug-panel {
+	background: #ffffff;
+	color: #0b1220;
+	border: 1px solid rgba(0,0,0,0.08);
+	box-shadow: 0 6px 18px rgba(2,6,8,0.12);
+	opacity: 0.96;
+}
+
+[data-theme="dark"] #dev-debug-panel {
+	background: #ffffff;
+	color: #0b1220;
+	border: 1px solid rgba(0,0,0,0.12);
+	box-shadow: 0 6px 18px rgba(2,6,8,0.18);
+	opacity: 0.96;
+}
+
+/* =========================================
+   RESPONSIVE BREAKPOINTS
+   ========================================= */
+@media (max-width: 800px) {
+	#board-container { max-width: 100%; }
+	.tab-cards { flex-direction: column; }
+	.layout { flex-direction: column; }
+	.right-col { max-width: 100%; }
+}
+
+@media only screen and (max-width: 850px) {
+	/* Reclaim body margins */
+	html, body {
+		margin: 0;
+		padding: 4px;
+	}
+	/* Stack columns vertically */
+	.layout {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		padding: 5px;
+	}
+	/* Full width columns — board renders first in document flow */
+	.left-col {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		margin-right: 0;
+		order: 1;
+	}
+	.right-col {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		margin-right: 0;
+		margin-top: 12px;
+		order: 2;
+	}
+	/* Board fills screen width — no competing max-width */
+	#board-container {
+		width: 100%;
+		max-width: 100% !important;
+		min-width: 0;
+		padding: 0;
+		box-sizing: border-box;
+	}
+	/* Maintain square aspect ratio */
+	#board {
+		width: 100% !important;
+		height: auto !important;
+		aspect-ratio: 1 / 1;
+	}
+	/* Move panels below */
+	.panel {
+		margin-top: 15px;
+		width: 100%;
+	}
+	/* Shrink header */
+	.page-header h1 {
+		font-size: 1.5rem;
+	}
 }

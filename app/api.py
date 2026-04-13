@@ -22,6 +22,39 @@ def _recover_last_move(game_obj):
     return None
 
 
+def _parse_engine_params(data):
+    """Extract and validate engine parameters from a request payload.
+    Returns (engine_time, engine_skill, engine_persona, engine_strength, engine_rng_seed)
+    or raises a ValueError with an error string if persona is invalid.
+    """
+    try:
+        engine_time = min(float(data.get("engine_time", 0.1)), MAX_ENGINE_TIME)
+    except Exception:
+        engine_time = 0.1
+    try:
+        engine_skill = data.get("engine_skill")
+        engine_skill = int(engine_skill) if engine_skill is not None else None
+    except Exception:
+        engine_skill = None
+    engine_persona = data.get('engine_persona')
+    try:
+        from app.engine_personas import is_persona_allowed
+        if engine_persona and not is_persona_allowed(engine_persona):
+            raise ValueError("unknown_persona")
+    except ValueError:
+        raise
+    except Exception:
+        pass
+    engine_strength = data.get('engine_strength')
+    engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
+    if engine_rng_seed is not None:
+        try:
+            engine_rng_seed = int(engine_rng_seed)
+        except Exception:
+            pass
+    return engine_time, engine_skill, engine_persona, engine_strength, engine_rng_seed
+
+
 
 
 def state_payload():
@@ -63,32 +96,10 @@ def api_move():
     # Optionally make engine reply
     reply = None
     if data.get("engine_reply"):
-        # read optional engine params
         try:
-            engine_time = min(float(data.get("engine_time", 0.1)), MAX_ENGINE_TIME)
-        except Exception:
-            engine_time = 0.1
-        engine_persona = data.get('engine_persona')
-        # validate persona name if provided
-        try:
-            from app.engine_personas import is_persona_allowed
-            if engine_persona and not is_persona_allowed(engine_persona):
-                return jsonify({"ok": False, "error": "unknown_persona"}), 400
-        except Exception:
-            pass
-        try:
-            engine_skill = data.get("engine_skill")
-            engine_skill = int(engine_skill) if engine_skill is not None else None
-        except Exception:
-            engine_skill = None
-        engine_strength = data.get('engine_strength')
-        # optional RNG seed for deterministic sampling
-        engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
-        if engine_rng_seed is not None:
-            try:
-                engine_rng_seed = int(engine_rng_seed)
-            except Exception:
-                pass
+            engine_time, engine_skill, engine_persona, engine_strength, engine_rng_seed = _parse_engine_params(data)
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
         reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
         if reply is None:
             reply = _recover_last_move(game)
@@ -147,29 +158,9 @@ def api_engine_move():
         return jsonify({"ok": True, "fen": game.get_fen(), "engine_reply": None, "game_over": True, "reason": end_payload.get('reason'), "result": end_payload.get('result'), "pgn": end_payload.get('pgn')})
     data = request.get_json() or {}
     try:
-        engine_time = min(float(data.get("engine_time", 0.1)), MAX_ENGINE_TIME)
-    except Exception:
-        engine_time = 0.1
-    try:
-        engine_skill = data.get("engine_skill")
-        engine_skill = int(engine_skill) if engine_skill is not None else None
-    except Exception:
-        engine_skill = None
-
-    engine_persona = data.get('engine_persona')
-    engine_strength = data.get('engine_strength')
-    try:
-        from app.engine_personas import is_persona_allowed
-        if engine_persona and not is_persona_allowed(engine_persona):
-            return jsonify({"ok": False, "error": "unknown_persona"}), 400
-    except Exception:
-        pass
-    engine_rng_seed = data.get('rng_seed') if 'rng_seed' in data else None
-    if engine_rng_seed is not None:
-        try:
-            engine_rng_seed = int(engine_rng_seed)
-        except Exception:
-            pass
+        engine_time, engine_skill, engine_persona, engine_strength, engine_rng_seed = _parse_engine_params(data)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     reply = game.engine_move(limit=engine_time, engine_skill=engine_skill, engine_persona=engine_persona, engine_strength=engine_strength, rng_seed=engine_rng_seed)
     if reply is None:
         reply = _recover_last_move(game)

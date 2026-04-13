@@ -163,6 +163,8 @@ const ChessVoice = {
     check: "Check!",
     checkmateWin: "Checkmate! You win!",
     checkmateLose: "Checkmate! I win!",
+    checkmateWhiteWins: "White wins!",
+    checkmateBlackWins: "Black wins!",
     draw: "It's a draw",
     resignYou: "You resign",
     resignOpponent: "I resign"
@@ -206,6 +208,8 @@ const ChessVoice = {
   sayCheck() { this.speak('check'); },
   sayCheckmateWin() { this.speak('checkmateWin'); },
   sayCheckmateLose() { this.speak('checkmateLose'); },
+  sayCheckmateWhiteWins() { this.speak('checkmateWhiteWins'); },
+  sayCheckmateBlackWins() { this.speak('checkmateBlackWins'); },
   sayDraw() { this.speak('draw'); },
   sayResignYou() { this.speak('resignYou'); },
   sayResignOpponent() { this.speak('resignOpponent'); }
@@ -1610,6 +1614,7 @@ function showPromotionModal(color) {
   });
 }
 
+// Free board mode: implemented, no UI entry point. Kept for future chess-tutor integration.
 // Handle piece drops while in Free Board edit mode.
 async function handleFreeBoardDrop(source, target, piece, newPos, oldPos) {
   try {
@@ -1729,7 +1734,7 @@ function handleGameDrop(source, target, piece) {
   if (attempted == null) return 'snapback';
   
   // Store whether this was a capture
-  const wasCapture = attempted.captured ? true : false;
+  const wasCapture = !!attempted.captured;
   
   // 1. Apply the move locally and SAVE it to history (Intermediate State)
   // (we intentionally do not undo here so the UI reflects the user's ply)
@@ -1902,25 +1907,21 @@ window.addEventListener('load', async () => {
   if (playerSelect) playerSelect.value = savedPlayerColor;
 
   // Captured trays are now statically placed in the sidebar; dynamic anchoring removed.
-  try { /* no-op placeholder for static tray placement */ } catch (e) { console.error('Operation failed:', e); }
-
   // Persona controls
   enginePersonaSelect = document.getElementById('engine-persona');
   try {
     const savedPersona = localStorage.getItem('enginePersona');
-    if (enginePersonaSelect && savedPersona) enginePersonaSelect.value = savedPersona;
     if (enginePersonaSelect && savedPersona) {
       enginePersonaSelect.value = savedPersona;
     } else if (enginePersonaSelect) {
-      // default persona
       enginePersonaSelect.value = 'Intermediate';
       try { localStorage.setItem('enginePersona', 'Intermediate'); } catch (e) { console.error('Operation failed:', e); }
     }
   } catch (e) { /* ignore localStorage errors */ }
-  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => { try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) { console.error('Operation failed:', e); } });
-  // playersDisplay and updatePlayersDisplay moved to top-level
-  // update display when names or side change
-  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', updatePlayersDisplay);
+  if (enginePersonaSelect) enginePersonaSelect.addEventListener('change', () => {
+    try { localStorage.setItem('enginePersona', enginePersonaSelect.value); } catch (e) { console.error('Operation failed:', e); }
+    updatePlayersDisplay();
+  });
   // initial render of the players mapping
   try { updatePlayersDisplay(); } catch (e) { }
 
@@ -1936,14 +1937,11 @@ window.addEventListener('load', async () => {
       input.value = saved;
       buttons.forEach(b => {
         const v = b.getAttribute('data-value');
-        if (v === input.value) {
-          b.style.background = '#222'; b.style.color = '#fff';
-        } else { b.style.background = 'transparent'; b.style.color = '#ccc'; }
+        b.classList.toggle('pill-selected', v === input.value);
         b.addEventListener('click', () => {
-          // Play select sound
           try { ChessSounds.playSelect(); } catch (e) { console.warn('Sound playback failed', e); }
           try { input.value = v; } catch (e) { console.error('Operation failed:', e); }
-          buttons.forEach(x => { if (x === b) { x.style.background = '#222'; x.style.color = '#fff'; } else { x.style.background = 'transparent'; x.style.color = '#ccc'; } });
+          buttons.forEach(x => x.classList.toggle('pill-selected', x === b));
           try { localStorage.setItem(inputId, v); } catch (e) { console.error('Operation failed:', e); }
           try { input.dispatchEvent(new Event('change')); } catch (e) { console.error('Operation failed:', e); }
           if (typeof onChange === 'function') onChange(v);
@@ -2123,6 +2121,39 @@ window.addEventListener('load', async () => {
       }
     } catch (e) { console.error('Operation failed:', e); }
 
+    // Scoresheet collapse — mobile default collapsed, desktop expanded
+    try {
+      if (state === 'IN_GAME') {
+        const sc = document.getElementById('scoresheet-container');
+        const toggleBtn = document.getElementById('scoresheet-toggle');
+        if (sc && toggleBtn) {
+          // Determine initial state: collapsed on mobile unless session says otherwise
+          const stored = sessionStorage.getItem('scoresheet-collapsed');
+          const isMobile = window.innerWidth <= 850;
+          const shouldCollapse = stored !== null ? stored === 'true' : isMobile;
+          if (shouldCollapse) {
+            sc.classList.add('scoresheet-collapsed');
+            toggleBtn.textContent = 'Show Moves ▾';
+            toggleBtn.setAttribute('aria-expanded', 'false');
+          } else {
+            sc.classList.remove('scoresheet-collapsed');
+            toggleBtn.textContent = 'Hide Moves ▴';
+            toggleBtn.setAttribute('aria-expanded', 'true');
+          }
+          // Wire toggle button (guard against double-binding)
+          if (!toggleBtn._scoresheetBound) {
+            toggleBtn._scoresheetBound = true;
+            toggleBtn.addEventListener('click', function() {
+              const collapsed = sc.classList.toggle('scoresheet-collapsed');
+              sessionStorage.setItem('scoresheet-collapsed', collapsed ? 'true' : 'false');
+              toggleBtn.textContent = collapsed ? 'Show Moves ▾' : 'Hide Moves ▴';
+              toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            });
+          }
+        }
+      }
+    } catch (e) { console.error('Scoresheet collapse init failed:', e); }
+
     // Chess clock
     try {
       if (state === 'IN_GAME') {
@@ -2191,7 +2222,7 @@ window.addEventListener('load', async () => {
         try {
           const result = info.result || '';
           const reason = info.reason || '';
-          const playerColor = (playerSelect && playerSelect.value) ? playerSelect.value.toLowerCase() : 'white';
+          const playerColor = localStorage.getItem('playerColor') || 'white';
           
           // Determine if player won, lost, or draw
           if (reason.toLowerCase().includes('draw') || result.includes('1/2')) {
@@ -2204,14 +2235,11 @@ window.addEventListener('load', async () => {
               ChessVoice.sayResignOpponent();
             }
           } else if (result === '1-0') {
-            // White won
-            ChessVoice[playerColor === 'white' ? 'sayCheckmateWin' : 'sayCheckmateLose']();
+            ChessVoice.sayCheckmateWhiteWins();
           } else if (result === '0-1') {
-            // Black won
-            ChessVoice[playerColor === 'black' ? 'sayCheckmateWin' : 'sayCheckmateLose']();
+            ChessVoice.sayCheckmateBlackWins();
           } else {
-            // Fallback - default to checkmate win
-            ChessVoice.sayCheckmateWin();
+            ChessVoice.sayCheckmateWhiteWins();
           }
         } catch (e) { console.warn('Voice playback failed', e); }
       } catch (e) { console.error('Failed to show game-over modal:', e); }
