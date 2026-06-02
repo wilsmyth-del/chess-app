@@ -40,8 +40,7 @@ PGNs, test data, and local config files that had leaked into the repo.
 
 ### Small Touches
 - Removed a dead `checking.mp3` reference that was throwing 404s in the console
-- Added `<link rel="icon" href="data:,">` to suppress the favicon 404
-- Tried to add a chess knight SVG favicon but it didn't load — left for later
+- Favicon: chess knight ♞ via inline SVG data URI (works in all modern browsers)
 - The "listener indicated async response" console errors are browser extensions, not us
 
 ## Key Architecture Notes
@@ -50,8 +49,7 @@ PGNs, test data, and local config files that had leaked into the repo.
 - `main.js` — `AppState` pattern with getters/setters/events; `setUIState()` manages
   all panel visibility, controls, and play button sync
 - `chess_core.py` — Stockfish interface with validated engine path
-- Dead standalone `setPlayEngine()` function (~line 3143 in main.js) still exists
-  as harmless dead code — candidate for cleanup
+- Dead standalone `setPlayEngine()` function removed (was ~line 2745, superseded by AppState.setPlayEngine())
 
 ## Commits Pushed
 - `085ca51` — Modular persona system, security hardening, game start fix, repo cleanup
