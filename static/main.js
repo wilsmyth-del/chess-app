@@ -2234,12 +2234,13 @@ window.addEventListener('load', async () => {
             } else {
               ChessVoice.sayResignOpponent();
             }
-          } else if (result === '1-0') {
-            ChessVoice.sayCheckmateWhiteWins();
-          } else if (result === '0-1') {
-            ChessVoice.sayCheckmateBlackWins();
           } else {
-            ChessVoice.sayCheckmateWhiteWins();
+            const playerWon = (playerColor === 'white' && result === '1-0') || (playerColor === 'black' && result === '0-1');
+            if (playerWon) {
+              ChessVoice.sayCheckmateWin();
+            } else {
+              ChessVoice.sayCheckmateLose();
+            }
           }
         } catch (e) { console.warn('Voice playback failed', e); }
       } catch (e) { console.error('Failed to show game-over modal:', e); }

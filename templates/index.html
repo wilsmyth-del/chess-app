@@ -54,7 +54,7 @@
       </div>
 
           <div class="right-col">
-            <div class="captured-trays" style="margin-bottom:15px; padding:10px; background:rgba(0,0,0,0.1); border-radius:4px; display:flex; flex-direction:column; gap:8px;">
+            <div class="captured-trays" style="margin-bottom:15px; padding:10px; background:var(--card-accent); border-radius:var(--radius); display:flex; flex-direction:column; gap:8px;">
               <div class="captured-tray" style="display:flex; align-items:center; min-height:24px;">
                 <div id="tray-white" class="tray-items" style="display:flex; flex-wrap:wrap;"></div>
               </div>
@@ -134,17 +134,17 @@
 
           <div id="in-game-panel" class="panel" style="display:none">
             <!-- Traditional Chess Scoresheet Design -->
-            <div id="scoresheet-container" style="background:rgba(0,0,0,0.3); border:1px solid #444; border-radius:6px; margin-bottom:15px; overflow:hidden;">
+            <div id="scoresheet-container" style="background:var(--card); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:15px; overflow:hidden;">
               <!-- Mobile collapse toggle (JS shows/hides via .scoresheet-collapsed) -->
               <button id="scoresheet-toggle" aria-expanded="true" aria-controls="scoresheet-moves">Show Moves ▾</button>
               <!-- Player names header -->
-              <div id="scoresheet-players" style="display:flex; justify-content:space-between; padding:8px 12px; background:rgba(0,0,0,0.4); border-bottom:1px solid #444;">
-                <div id="white-player-name" style="color:#f0f0f0; font-weight:600; font-size:0.9em;">White: Player</div>
-                <div id="black-player-name" style="color:#bbb; font-weight:600; font-size:0.9em;">Black: Bot</div>
+              <div id="scoresheet-players" style="display:flex; justify-content:space-between; padding:8px 12px; background:var(--card-accent-strong); border-bottom:1px solid var(--border);">
+                <div id="white-player-name" style="color:var(--text); font-weight:600; font-size:0.9em;">White: Player</div>
+                <div id="black-player-name" style="color:var(--muted); font-weight:600; font-size:0.9em;">Black: Bot</div>
               </div>
               
               <!-- Moves table header -->
-              <div style="display:grid; grid-template-columns: 40px 1fr 1fr; padding:6px 8px; background:rgba(255,255,255,0.05); border-bottom:1px solid #444; font-size:0.85em; font-weight:600; color:#888;">
+              <div style="display:grid; grid-template-columns: 40px 1fr 1fr; padding:6px 8px; background:var(--card-accent); border-bottom:1px solid var(--border); font-size:0.85em; font-weight:600; color:var(--muted);">
                 <div style="text-align:center;">#</div>
                 <div style="padding-left:8px;">White</div>
                 <div style="padding-left:8px;">Black</div>
@@ -156,14 +156,14 @@
               </div>
               
               <!-- Game result (shown at end) -->
-              <div id="scoresheet-result" style="display:none; padding:8px 12px; background:rgba(0,150,0,0.2); border-top:1px solid #444; text-align:center; font-weight:600; color:#4CAF50;"></div>
+              <div id="scoresheet-result" style="display:none; padding:8px 12px; background:rgba(91,110,245,0.1); border-top:1px solid var(--border); text-align:center; font-weight:600; color:var(--accent-primary);"></div>
               
               <!-- Navigation buttons -->
-              <div class="scoresheet-nav" style="display:flex; width:100%; box-sizing:border-box; border-top:1px solid #444;">
-                <button id="nav-start" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&lt;&lt;</button>
-                <button id="nav-prev" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&lt;</button>
-                <button id="nav-next" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid #444; border-radius:0;">&gt;</button>
-                <button id="nav-end" class="ctrl small" style="flex:1; min-width:0; border:none; border-radius:0;">&gt;&gt;</button>
+              <div class="scoresheet-nav" style="display:flex; width:100%; box-sizing:border-box; border-top:1px solid var(--border);">
+                <button id="nav-start" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid var(--border); border-radius:0; background:var(--card-accent-strong);">&lt;&lt;</button>
+                <button id="nav-prev" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid var(--border); border-radius:0; background:var(--card-accent-strong);">&lt;</button>
+                <button id="nav-next" class="ctrl small" style="flex:1; min-width:0; border:none; border-right:1px solid var(--border); border-radius:0; background:var(--card-accent-strong);">&gt;</button>
+                <button id="nav-end" class="ctrl small" style="flex:1; min-width:0; border:none; border-radius:0; background:var(--card-accent-strong);">&gt;&gt;</button>
               </div>
             </div>
             
@@ -177,7 +177,7 @@
               <button id="hint-btn" class="ctrl secondary" style="flex:1; display:none;">Hint</button>
               <button id="end-game-btn" class="ctrl danger" style="flex:1;">Resign</button>
             </div>
-            <div id="hint-text" style="margin-top:10px; font-size:0.9em; color:#ffff80; min-height:1.2em;"></div>
+            <div id="hint-text" style="margin-top:10px; font-size:0.9em; color:var(--accent-primary); min-height:1.2em;"></div>
           </div>
 
 
@@ -297,19 +297,9 @@
     </div>
 
     <style>
-    /* Minimal styles for feedback modal/button - minimalist text-only */
-      .feedback-button{position:fixed;right:18px;bottom:18px;z-index:1200;background:transparent;color:#fff;border:none;padding:10px 14px;border-radius:999px;box-shadow:none;cursor:pointer;transition:color 0.2s ease}
-      .feedback-button:hover{color:#000}
-    .modal{position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:1201}
-    .modal[aria-hidden="true"]{display:none}
-    .modal-content{background:#111;color:#fff;padding:18px;border-radius:8px;max-width:520px;width:92%;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
-    .modal-content input,.modal-content textarea{width:100%;padding:8px;margin:6px 0 12px;border-radius:6px;border:1px solid #444;background:#0b0b0b;color:#fff}
+    /* Feedback modal overrides — defers to style.css variables */
+    .modal-content input,.modal-content textarea{width:100%;padding:8px;margin:6px 0 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)}
     .modal-content .close{position:absolute;right:12px;top:10px;font-size:20px;cursor:pointer}
-    .button-group{display:flex;gap:8px}
-    .submit-btn{background:transparent;color:#fff;padding:8px 12px;border-radius:6px;border:none;transition:color 0.2s ease}
-    .submit-btn:hover{color:#000;background:transparent}
-    .cancel-btn{background:transparent;color:#fff;border:none;padding:8px 12px;border-radius:6px;transition:color 0.2s ease}
-    .cancel-btn:hover{color:#000;background:transparent}
     </style>
 
     <script>

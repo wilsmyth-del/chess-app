@@ -1,19 +1,37 @@
 /* =========================================
    CSS VARIABLES & THEME SYSTEM
-   KB ticket system design language
    ========================================= */
 :root {
 	--bg: #0f1117;
 	--text: #e2e8f0;
-	--muted: #94a3b8;
+	--muted: #7c85a8;
 	--card: #1a1d2e;
-	--card-accent: rgba(99,102,241,0.08);
-	--card-accent-strong: #1a1d2e;
-	--border: #2d3148;
-	--accent-primary: #a78bfa;
-	--accent-secondary: #6366f1;
+	--card-accent: rgba(91,110,245,0.06);
+	--card-accent-strong: #20233a;
+	--border: #2e3150;
+	--accent-primary: #5b6ef5;
+	--accent-secondary: #4a5de0;
 	--modal-overlay: rgba(0,0,0,0.75);
-	--danger: #f87171;
+	--danger: #e05b6f;
+	--radius: 12px;
+}
+
+/* =========================================
+   LIGHT THEME OVERRIDES
+   ========================================= */
+[data-theme="light"] {
+	--bg: #f8fafc;
+	--text: #0f172a;
+	--muted: #64748b;
+	--card: #ffffff;
+	--card-accent: rgba(91,110,245,0.05);
+	--card-accent-strong: #f1f5f9;
+	--border: #e2e8f0;
+	--accent-primary: #4a5de0;
+	--accent-secondary: #5b6ef5;
+	--modal-overlay: rgba(0,0,0,0.5);
+	--danger: #e05b6f;
+	--radius: 12px;
 }
 
 /* =========================================
@@ -34,7 +52,6 @@ button, .ctrl, .pill-btn { outline: none; }
    ========================================= */
 #status { margin-top: 12px; color: var(--muted); }
 
-/* Result announcement (theme-aware) */
 #result-indicator { margin-top: 6px; font-weight: 600; color: var(--text); }
 .result-win { color: var(--text); }
 .result-draw { color: var(--muted); }
@@ -45,12 +62,26 @@ button, .ctrl, .pill-btn { outline: none; }
 /* =========================================
    LAYOUT
    ========================================= */
-/* Two-column layout */
 .layout { display:flex; gap:24px; align-items:flex-start; flex-wrap: wrap; }
 .left-col { flex: 0 0 65%; min-width: 0; }
 .right-col { flex: 1 1 35%; max-width:420px; }
 
-.page-header { display:flex; align-items:center; gap:12px; justify-content:space-between; }
+.page-header {
+	display:flex;
+	align-items:center;
+	gap:12px;
+	justify-content:space-between;
+	padding-bottom: 14px;
+	margin-bottom: 20px;
+	border-bottom: 1px solid var(--border);
+}
+
+.page-header h1 {
+	font-size: 1.25rem;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	margin: 0;
+}
 
 /* =========================================
    PERSONA INDICATOR
@@ -61,9 +92,8 @@ button, .ctrl, .pill-btn { outline: none; }
 	color: var(--text);
 	font-weight:700;
 	background: var(--card);
-	padding:6px 10px;
-	border-radius:999px;
-	box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+	padding:6px 12px;
+	border-radius: 999px;
 	border: 1px solid var(--border);
 	display:inline-block;
 	min-width:96px;
@@ -73,74 +103,102 @@ button, .ctrl, .pill-btn { outline: none; }
 /* =========================================
    THEME TOGGLE
    ========================================= */
-#theme-toggle { margin-left:12px; padding:6px 10px; cursor:pointer; border-radius:4px; border:1px solid var(--border); background:transparent; color:var(--text); }
+#theme-toggle {
+	padding: 6px 12px;
+	cursor: pointer;
+	border-radius: var(--radius);
+	border: 1px solid var(--border);
+	background: var(--card);
+	color: var(--text);
+	font-size: 13px;
+	font-weight: 600;
+	transition: border-color 0.2s, color 0.2s;
+}
+#theme-toggle:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
 
 /* =========================================
    PILL BUTTONS
-   Minimalist text-only style (index.css intent)
    ========================================= */
 .pill-btn {
-	padding: 8px 12px;
-	border-radius: 18px;
-	border: none;
+	padding: 6px 14px;
+	border-radius: 999px;
+	border: 1px solid var(--border);
 	background: transparent;
-	color: var(--text);
+	color: var(--muted);
 	cursor: pointer;
-	font-size: 1em;
-	transition: color 0.2s ease;
+	font-size: 0.9em;
+	font-weight: 500;
+	transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 
-.pill-btn:hover { color: var(--accent-primary); }
+.pill-btn:hover {
+	color: var(--text);
+	border-color: var(--accent-primary);
+}
 
-.pill-btn.pill-selected { color: var(--accent-primary); }
+.pill-btn.pill-selected {
+	background: var(--accent-primary);
+	color: #ffffff;
+	border-color: var(--accent-primary);
+}
 
 .pill-disabled { opacity: 0.35; pointer-events: none; cursor: default; }
 .pill-hidden { display: none; }
 
 /* =========================================
    CTRL BUTTONS
-   Single unified definition — minimalist, no border
    ========================================= */
 .control-group { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
 
 .ctrl {
-	padding: 6px 12px;
-	border-radius: 4px;
+	padding: 8px 16px;
+	border-radius: calc(var(--radius) - 4px);
 	border: none;
-	background: var(--accent-secondary);
+	background: var(--accent-primary);
 	cursor: pointer;
 	color: #ffffff;
+	font-weight: 600;
+	font-size: 0.9em;
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	text-align: center;
 	white-space: nowrap;
-	min-width: 120px;
+	min-width: 100px;
 	height: 36px;
-	transition: background 0.2s ease, color 0.2s ease;
+	transition: background 0.15s, color 0.15s;
 }
 
-.ctrl:hover { background: var(--accent-primary); color: #ffffff; }
+.ctrl:hover { background: var(--accent-secondary); }
 
-.ctrl.small { padding: 6px 12px; font-size: 13px; min-width: 120px; height: 36px; }
-.ctrl.danger { color: var(--danger); }
+.ctrl.secondary {
+	background: var(--card);
+	color: var(--text);
+	border: 1px solid var(--border);
+}
+.ctrl.secondary:hover { border-color: var(--accent-primary); color: var(--accent-primary); background: var(--card); }
+
+.ctrl.small { padding: 6px 12px; font-size: 13px; min-width: 80px; height: 32px; }
+.ctrl.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+.ctrl.danger:hover { background: rgba(224, 91, 111, 0.1); }
 
 /* Play button states */
-.ctrl.play-start { background: var(--accent-secondary); font-weight: 700; }
-.ctrl.play-resign { background: transparent; color: var(--danger); font-weight: 700; }
+.ctrl.play-start { background: var(--accent-primary); color: #fff; font-weight: 700; }
+.ctrl.play-resign { background: transparent; color: var(--danger); border: 1px solid var(--danger); font-weight: 700; }
+.ctrl.play-resign:hover { background: rgba(224, 91, 111, 0.1); }
 
-/* Resign button — danger colour */
+/* Resign button */
 #end-game-btn {
 	background: transparent;
 	color: var(--danger);
+	border: 1px solid var(--danger);
 	font-weight: 700;
-	font-size: 1.15em;
-	border: none;
+	font-size: 0.9em;
 }
-#end-game-btn:hover { color: #fca5a5; background: transparent; }
+#end-game-btn:hover { background: rgba(224, 91, 111, 0.1); }
 
-/* Disable reset/new-game buttons during active game */
+/* Disable reset/new-game during active game */
 body.game-in-progress #reset-btn,
 body.game-in-progress #new-game-btn-game {
 	opacity: 0.35;
@@ -151,11 +209,9 @@ body.game-in-progress #new-game-btn-game {
 /* =========================================
    BOARD LAYOUT
    ========================================= */
-/* Board controls beside the board */
 .board-wrap { display:flex; flex-direction:column; gap:12px; align-items:flex-start; position: relative; }
 .board-controls { display:flex; flex-direction:column; gap:8px; align-items:flex-start; margin-left:6px; }
 
-/* Board sizing: scale with viewport, cap to avoid scroll */
 #board-container {
 	width: min(72vh, 75vw);
 	max-width: 900px;
@@ -164,28 +220,27 @@ body.game-in-progress #new-game-btn-game {
 	position: relative;
 }
 
-/* Keep the board square */
 #board {
 	width: 100%;
 	aspect-ratio: 1 / 1;
 	height: auto;
-	border: 4px solid var(--border);
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+	border: 2px solid var(--border);
+	border-radius: 4px;
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
 }
 
 .board-bottom-controls { display:flex; gap:8px; margin-top:8px; justify-content:center; }
 
-/* Anchored captured-trays when positioned below the board */
 .captured-trays.anchored-right { position: absolute; bottom: -46px; right: 8px; z-index: 30; }
 .captured-trays.anchored-left { position: absolute; bottom: -46px; left: 8px; z-index: 30; }
 
-/* Tap-to-move selection highlight */
+/* Tap-to-move highlight */
 .square-55d63.highlight-selected {
 	background: yellow !important;
 	opacity: 0.5;
 }
 
-/* Ensure dragged chess piece stays visible during drag */
+/* Dragged piece */
 .piece-417db {
 	z-index: 10000 !important;
 	cursor: grab !important;
@@ -213,10 +268,10 @@ body.game-in-progress #new-game-btn-game {
 	flex-direction: column;
 	align-items: center;
 	padding: 8px 12px;
-	border-radius: 6px;
+	border-radius: calc(var(--radius) - 4px);
 	border: 1px solid var(--border);
 	background: var(--card);
-	transition: background 0.2s;
+	transition: background 0.2s, border-color 0.2s;
 }
 .clock-label {
 	font-size: 11px;
@@ -234,43 +289,87 @@ body.game-in-progress #new-game-btn-game {
 	letter-spacing: 0.02em;
 }
 .clock-face.clock-active {
-	background: rgba(99,102,241,0.15);
-	border-color: var(--accent-secondary);
+	background: rgba(91,110,245,0.12);
+	border-color: var(--accent-primary);
 }
 .clock-time.clock-low { color: var(--danger); }
 
 /* =========================================
-   PANEL VISUAL POLISH
-   box-shadow, border-radius, state transitions
+   PANEL / CARD
    ========================================= */
 .panel {
-	box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-	border-radius: 8px;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 16px;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 	transition: opacity 0.2s ease;
 }
 .card {
-	box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-	border-radius: 8px;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+/* =========================================
+   FORM GROUPS
+   ========================================= */
+.form-group { margin-bottom: 16px; }
+.form-group label {
+	display: block;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--muted);
+	margin-bottom: 8px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+.form-group input[type="text"] {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	color: var(--text);
+	padding: 8px 12px;
+	border-radius: calc(var(--radius) - 4px);
+	font-size: 0.95em;
+	width: 100%;
+	box-sizing: border-box;
+	transition: border-color 0.15s;
+}
+.form-group input[type="text"]:focus {
+	outline: none;
+	border-color: var(--accent-primary);
 }
 
 /* =========================================
    TABS
    ========================================= */
 .tabs { display:flex; gap:8px; margin-bottom:10px; }
-.tab-btn { padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--card); cursor:pointer; font-weight:600; color:var(--text); }
-.tab-btn[aria-selected="true"] { background: var(--accent-secondary); color: #ffffff; border-color: var(--accent-secondary); }
+.tab-btn {
+	padding: 7px 14px;
+	border-radius: calc(var(--radius) - 4px);
+	border: 1px solid var(--border);
+	background: var(--card);
+	cursor: pointer;
+	font-weight: 600;
+	font-size: 0.9em;
+	color: var(--muted);
+	transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.tab-btn:hover { color: var(--text); border-color: var(--accent-primary); }
+.tab-btn[aria-selected="true"] { background: var(--accent-primary); color: #ffffff; border-color: var(--accent-primary); }
 .tab-cards { display:flex; gap:12px; margin-top:12px; }
-.tab-card { padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; flex:1; display:none; color:var(--text); }
+.tab-card { padding:12px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); flex:1; display:none; color:var(--text); }
 .tab-card h3 { margin:0 0 6px 0; }
 .tab-card[data-tab="game"] { display:block; }
 
 /* =========================================
    ACCORDION
    ========================================= */
-.accordion { border: 1px solid var(--border); border-radius:6px; overflow:hidden; background: var(--card); }
+.accordion { border: 1px solid var(--border); border-radius: var(--radius); overflow:hidden; background: var(--card); }
 .accordion-item + .accordion-item { border-top: 1px solid var(--border); }
-.accordion-toggle { width:100%; text-align:left; padding:10px 12px; background:transparent; border:0; cursor:pointer; font-weight:600; color:var(--text); }
-.accordion-content { padding:10px 12px; display:none; }
+.accordion-toggle { width:100%; text-align:left; padding:10px 14px; background:transparent; border:0; cursor:pointer; font-weight:600; color:var(--text); }
+.accordion-content { padding:10px 14px; display:none; }
 .accordion-content.open { display:block; }
 
 /* =========================================
@@ -285,7 +384,7 @@ body.game-in-progress #new-game-btn-game {
 	border: 1px solid var(--border);
 	color: var(--text);
 	padding: 8px 10px;
-	border-radius: 8px;
+	border-radius: calc(var(--radius) - 4px);
 }
 .sim-form textarea { height:120px; }
 
@@ -295,18 +394,16 @@ body.game-in-progress #new-game-btn-game {
 .engine-controls input[type="range"] { width:100%; margin-top:6px; }
 
 /* =========================================
-   SCORESHEET COLLAPSED STATE (mobile toggle)
+   SCORESHEET COLLAPSED STATE
    ========================================= */
 .scoresheet-collapsed #scoresheet-moves {
 	height: 0 !important;
 	overflow: hidden !important;
 	padding: 0 !important;
 }
-/* Hide nav buttons when collapsed */
 .scoresheet-collapsed .scoresheet-nav {
 	display: none !important;
 }
-/* Toggle button — shown on mobile only */
 #scoresheet-toggle {
 	display: none;
 	width: 100%;
@@ -330,7 +427,7 @@ body.game-in-progress #new-game-btn-game {
 	.right-col { flex: 1 1 100%; max-width: 100%; }
 }
 
-/* Alternating rows */
+/* Alternating scoresheet rows */
 #scoresheet-moves tr:nth-child(odd) {
 	background: rgba(255,255,255,0.03);
 }
@@ -338,7 +435,7 @@ body.game-in-progress #new-game-btn-game {
 /* =========================================
    MOVE LIST
    ========================================= */
-.move-list { margin-top:6px; width:100%; height:112px; overflow:auto; border:1px solid var(--border); padding:6px; font-family:monospace; font-size:13px; line-height:20px; background:var(--card); color:var(--muted); }
+.move-list { margin-top:6px; width:100%; height:112px; overflow:auto; border:1px solid var(--border); padding:6px; font-family:monospace; font-size:13px; line-height:20px; background:var(--card); color:var(--muted); border-radius: calc(var(--radius) - 4px); }
 
 /* =========================================
    CAPTURED PIECE TRAYS
@@ -349,22 +446,17 @@ body.game-in-progress #new-game-btn-game {
 .tray-items { display:flex; gap:6px; flex-wrap:wrap; min-height:28px; align-items:center; }
 .captured-piece { width:24px; height:24px; display:inline-block; }
 
-/* Numeric badge next to captured piece icons */
 .tray-badge { display:inline-block; margin-left:6px; font-size:12px; color:var(--text); background: rgba(255,255,255,0.06); padding:2px 6px; border-radius:10px; min-width:18px; text-align:center; line-height:18px; }
-
-/* Wrapper for each captured piece icon (used by JS) */
 .tray-item { display:inline-flex; align-items:center; gap:6px; margin-right:4px; }
 
-/* Brief highlight when trays update */
 .tray-items.tray-flash { animation: trayFlash 420ms ease-in-out; }
 @keyframes trayFlash { 0% { background: rgba(255,255,0,0.12); } 100% { background: transparent; } }
 
 /* =========================================
    MODALS
-   Base modal: covers viewport, flex-centered
-   .hidden class collapses it
    ========================================= */
 .modal.hidden { display: none; }
+.modal[aria-hidden="true"] { display: none; }
 .modal {
 	position: fixed;
 	left: 0; top: 0; right: 0; bottom: 0;
@@ -375,25 +467,23 @@ body.game-in-progress #new-game-btn-game {
 	z-index: 9999;
 }
 
-/* Promotion modal content */
 .modal-content {
 	background: var(--card);
 	border: 1px solid var(--border);
-	padding: 16px 20px;
-	border-radius: 6px;
+	padding: 20px 24px;
+	border-radius: var(--radius);
 	text-align: center;
 	min-width: 260px;
 	color: var(--text);
 }
 .promo-buttons { display:flex; gap:8px; justify-content:center; margin:12px 0; }
-.promo-btn { padding:8px 12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; background:transparent; border:1px solid transparent; color:var(--text); }
+.promo-btn { padding:8px 12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; background:transparent; border:1px solid var(--border); color:var(--text); border-radius: calc(var(--radius) - 4px); }
 .promo-img { width:36px; height:36px; display:inline-block; }
 .promo-label { font-size:12px; color:var(--text); }
 .promo-cancel { margin-top:8px; background:transparent; border:0; color:var(--muted); cursor:pointer; }
 
 /* =========================================
    GAME OVER MODAL
-   Theme-aware: uses CSS variables, no hardcoded felt green
    ========================================= */
 #game-over-modal[aria-hidden="false"] {
 	display: flex;
@@ -404,18 +494,18 @@ body.game-in-progress #new-game-btn-game {
 .game-over-content {
 	background: var(--card);
 	color: var(--text);
-	padding: 30px;
-	border-radius: 12px;
-	max-width: 500px;
+	padding: 32px;
+	border-radius: var(--radius);
+	max-width: 480px;
 	width: 90%;
 	box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-	border: 2px solid var(--border);
+	border: 1px solid var(--border);
 }
 
 .game-over-content h2 {
 	margin-top: 0;
 	color: var(--accent-primary);
-	font-size: 1.8em;
+	font-size: 1.6em;
 }
 
 .game-over-content #game-over-result {
@@ -431,31 +521,27 @@ body.game-in-progress #new-game-btn-game {
 	margin-top: 24px;
 }
 
-/* Game-over modal buttons */
 .game-over-content .submit-btn {
-	background-color: var(--accent-secondary);
+	background-color: var(--accent-primary);
 	color: #ffffff;
 	border: none;
-	padding: 8px 16px;
-	border-radius: 5px;
-	transition: background 0.2s ease;
+	padding: 10px 20px;
+	border-radius: calc(var(--radius) - 4px);
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s;
 }
-
-.game-over-content .submit-btn:hover {
-	background-color: var(--accent-primary);
-}
+.game-over-content .submit-btn:hover { background-color: var(--accent-secondary); }
 
 .game-over-content .cancel-btn {
 	background-color: transparent;
 	color: var(--muted);
 	border: none;
 	padding: 8px 12px;
-	transition: color 0.2s ease;
+	cursor: pointer;
+	transition: color 0.15s;
 }
-
-.game-over-content .cancel-btn:hover {
-	color: var(--text);
-}
+.game-over-content .cancel-btn:hover { color: var(--text); }
 
 /* =========================================
    FEEDBACK MODAL
@@ -475,8 +561,11 @@ body.game-in-progress #new-game-btn-game {
 	display: block;
 	margin-top: 15px;
 	margin-bottom: 5px;
-	font-weight: bold;
-	color: var(--text);
+	font-weight: 600;
+	font-size: 13px;
+	color: var(--muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
 }
 
 #feedbackForm input[type="text"],
@@ -484,10 +573,10 @@ body.game-in-progress #new-game-btn-game {
 	width: 100%;
 	padding: 10px;
 	border: 1px solid var(--border);
-	border-radius: 5px;
+	border-radius: calc(var(--radius) - 4px);
 	font-size: 14px;
 	box-sizing: border-box;
-	background: var(--card);
+	background: var(--bg);
 	color: var(--text);
 }
 
@@ -505,61 +594,45 @@ body.game-in-progress #new-game-btn-game {
 .submit-btn,
 .cancel-btn {
 	flex: 1;
-	padding: 12px;
+	padding: 10px;
 	border: none;
-	border-radius: 5px;
-	font-size: 16px;
+	border-radius: calc(var(--radius) - 4px);
+	font-size: 15px;
+	font-weight: 600;
 	cursor: pointer;
-	background-color: transparent;
-	transition: color 0.2s ease;
+	transition: background 0.15s, color 0.15s;
 }
 
-.submit-btn { background-color: var(--accent-secondary); color: #ffffff; border-radius: 5px; }
-.submit-btn:hover { background-color: var(--accent-primary); color: #ffffff; }
+.submit-btn { background-color: var(--accent-primary); color: #ffffff; }
+.submit-btn:hover { background-color: var(--accent-secondary); }
 
-.cancel-btn { color: var(--muted); background-color: transparent; }
-.cancel-btn:hover { color: var(--text); background-color: transparent; }
+.cancel-btn { color: var(--muted); background-color: transparent; border: 1px solid var(--border); }
+.cancel-btn:hover { color: var(--text); border-color: var(--text); }
 
-#feedbackSuccess {
-	text-align: center;
-	padding: 20px;
-}
-
-#feedbackSuccess p {
-	color: var(--accent-primary);
-	font-size: 18px;
-	font-weight: bold;
-}
+#feedbackSuccess { text-align: center; padding: 20px; }
+#feedbackSuccess p { color: var(--accent-primary); font-size: 18px; font-weight: bold; }
 
 /* =========================================
    FEEDBACK BUTTON (floating)
-   Minimalist text-only (index.css intent)
    ========================================= */
 .feedback-button {
 	position: fixed;
 	bottom: 20px;
 	right: 20px;
-	background-color: var(--accent-secondary);
-	color: #ffffff;
-	border: none;
-	padding: 12px 20px;
-	font-size: 16px;
-	border-radius: 25px;
+	background-color: var(--card);
+	color: var(--muted);
+	border: 1px solid var(--border);
+	padding: 8px 14px;
+	font-size: 14px;
+	border-radius: 999px;
 	cursor: pointer;
-	box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 	z-index: 1000;
-	transition: background 0.2s ease;
+	transition: color 0.15s, border-color 0.15s;
 }
-
-.feedback-button:hover {
-	background-color: var(--accent-primary);
-	transform: none;
-	box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-}
+.feedback-button:hover { color: var(--text); border-color: var(--accent-primary); }
 
 /* =========================================
    GAME FOCUS MODE
-   Dims background during play
    ========================================= */
 .game-focus-overlay {
 	position: fixed;
@@ -570,10 +643,8 @@ body.game-in-progress #new-game-btn-game {
 	transition: opacity 0.3s ease-in-out;
 	z-index: 5;
 }
-
 body.game-in-progress .game-focus-overlay { opacity: 1; }
 
-/* Board stays above overlay */
 .board-wrap,
 #board-container,
 #board,
@@ -590,14 +661,12 @@ body.game-in-progress .game-focus-overlay { opacity: 1; }
 	z-index: 10;
 }
 
-/* Hide header during game — board dominates */
 @media only screen and (max-width: 850px) {
 	body.game-in-progress .page-header { display: none; }
 }
 
 /* =========================================
    DEV DEBUG PANEL
-   Intentionally breaks theme — high contrast always
    ========================================= */
 #dev-debug-panel {
 	background: #ffffff;
@@ -606,7 +675,6 @@ body.game-in-progress .game-focus-overlay { opacity: 1; }
 	box-shadow: 0 6px 18px rgba(2,6,8,0.12);
 	opacity: 0.96;
 }
-
 [data-theme="dark"] #dev-debug-panel {
 	background: #ffffff;
 	color: #0b1220;
@@ -626,55 +694,12 @@ body.game-in-progress .game-focus-overlay { opacity: 1; }
 }
 
 @media only screen and (max-width: 850px) {
-	/* Reclaim body margins */
-	html, body {
-		margin: 0;
-		padding: 4px;
-	}
-	/* Stack columns vertically */
-	.layout {
-		display: flex;
-		flex-direction: column;
-		width: 100%;
-		padding: 5px;
-	}
-	/* Full width columns — board renders first in document flow */
-	.left-col {
-		width: 100%;
-		max-width: 100%;
-		min-width: 0;
-		margin-right: 0;
-		order: 1;
-	}
-	.right-col {
-		width: 100%;
-		max-width: 100%;
-		min-width: 0;
-		margin-right: 0;
-		margin-top: 12px;
-		order: 2;
-	}
-	/* Board fills screen width — no competing max-width */
-	#board-container {
-		width: 100%;
-		max-width: 100% !important;
-		min-width: 0;
-		padding: 0;
-		box-sizing: border-box;
-	}
-	/* Maintain square aspect ratio */
-	#board {
-		width: 100% !important;
-		height: auto !important;
-		aspect-ratio: 1 / 1;
-	}
-	/* Move panels below */
-	.panel {
-		margin-top: 15px;
-		width: 100%;
-	}
-	/* Shrink header */
-	.page-header h1 {
-		font-size: 1.5rem;
-	}
+	html, body { margin: 0; padding: 4px; }
+	.layout { display: flex; flex-direction: column; width: 100%; padding: 5px; }
+	.left-col { width: 100%; max-width: 100%; min-width: 0; margin-right: 0; order: 1; }
+	.right-col { width: 100%; max-width: 100%; min-width: 0; margin-right: 0; margin-top: 12px; order: 2; }
+	#board-container { width: 100%; max-width: 100% !important; min-width: 0; padding: 0; box-sizing: border-box; }
+	#board { width: 100% !important; height: auto !important; aspect-ratio: 1 / 1; }
+	.panel { margin-top: 15px; width: 100%; }
+	.page-header h1 { font-size: 1.25rem; }
 }
