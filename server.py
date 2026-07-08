@@ -44,6 +44,17 @@ def create_app():
             app.logger.exception('Error saving feedback')
             return jsonify({'status': 'error', 'message': 'server error'}), 500
 
+    @app.get("/api/fart-move-sounds")
+    def fart_move_sounds():
+        """List whatever move-sound mp3s exist in the fart voice scheme's
+        moves/ folder, so the frontend can randomize between them without
+        a fixed filename list — just drop files in, no code change needed."""
+        moves_dir = Path(app.static_folder) / 'sounds' / 'voices' / 'fart' / 'moves'
+        if not moves_dir.is_dir():
+            return jsonify([])
+        names = sorted(p.name for p in moves_dir.glob('*.mp3'))
+        return jsonify(names)
+
     @app.get("/")
     def home():
         # Compute a cache-busting version using an MD5 of the main.js contents
