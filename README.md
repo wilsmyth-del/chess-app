@@ -1,18 +1,34 @@
-# Chess
+# Chess Tutor
 
-Minimal scaffold for a chess tutor application:
+A browser-based chess opponent and practice board with configurable computer personalities.
 
-- Backend: Flask + python-chess (authoritative game state, Stockfish optional)
-- Frontend: single-page app served by Flask using chessboard.js + chess.js
+## Features
 
+- Complete games against a computer opponent
+- Multiple opponent personalities
+- Server-side legal-move validation with `python-chess`
+- Optional Stockfish engine play
+- Move sounds and spoken feedback
 
-Quick start
+## Quick start
 
-```powershell
+```bash
 python -m venv venv
-venv\\Scripts\\Activate.ps1
+source venv/bin/activate
 pip install -r requirements.txt
 python server.py
 ```
 
-Set the `STOCKFISH_PATH` environment variable if you want engine replies.
+On Windows PowerShell, activate with `venv\\Scripts\\Activate.ps1`. Set `STOCKFISH_PATH` to a Stockfish executable to enable engine-backed play.
+
+## Project layout
+
+```text
+app/          Chess rules, API routes, and opponent personalities
+static/       Browser code, styles, pieces, and sounds
+templates/    Flask templates
+server.py     Application entry point
+test_bots.py  Opponent tests
+```
+
+Run tests with `pytest test_bots.py`. See [CHANGELOG.md](CHANGELOG.md) and [DEVLOG.md](DEVLOG.md) for project history.
